@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="SongClassifier/SongClassifier.csproj" />
+  <Project Path="SongServer/SongServer.csproj" />
+</Solution>

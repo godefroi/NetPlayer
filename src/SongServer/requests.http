@@ -1,0 +1,14 @@
+###
+GET http://localhost:5000/player
+
+###
+GET http://localhost:5000/player/pause
+
+###
+GET http://localhost:5000/player/stop
+
+###
+GET http://localhost:5000/player/play
+
+###
+GET http://localhost:5000/player/advance
