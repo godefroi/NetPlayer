@@ -7,11 +7,11 @@ namespace SongServer.Services.Library;
 
 public class Song
 {
-	public required long SourceId { get; set; }
+	public string SourcePath { get { return Source.Path; } }
 
-	public required string Path { get; set; }
+	public required string RelativePath { get; set; }
 
-	public required string Hash { get; set; }
+	public Uri Url { get { return ConvertToUri(Path.Combine(SourcePath, RelativePath)); } }
 
 	public required string Artist { get; set; }
 
@@ -25,11 +25,41 @@ public class Song
 
 	public TimeSpan Duration { get; set; }
 
-	public DateTime LastModified { get; set; }
+	public DateTime FileModified { get; set; }
 
 	public long FileSize { get; set; }
 
-	public Source? Source { get; set; }
+	public required string FileHash { get; set; }
+
+	public long SourceId { get; set; }
+
+	public Source Source { get; set; } = null!;
+
+	public static Uri ConvertToUri(string path)
+	{
+		// If it's already a valid URI, use it
+		if (Uri.TryCreate(path, UriKind.Absolute, out var uri)) {
+			return uri;
+		}
+
+		// Handle Windows UNC paths (\\server\share\path)
+		if (path.StartsWith(@"\\")) {
+			return new Uri($"file://{path.Replace('\\', '/')}");
+		}
+
+		// Handle Unix UNC paths (//server/share/path)
+		if (path.StartsWith("//")) {
+			return new Uri($"file:{path}");
+		}
+
+		// Handle regular file system paths
+		try {
+			return new Uri(Path.GetFullPath(path));
+		} catch {
+			// If all else fails, try to create as relative URI
+			return new Uri(path, UriKind.RelativeOrAbsolute);
+		}
+	}
 }
 
 internal class SongConfiguration : IEntityTypeConfiguration<Song>
@@ -38,7 +68,7 @@ internal class SongConfiguration : IEntityTypeConfiguration<Song>
 	{
 		builder.ToTable("songs");
 
-		builder.HasKey(s => new { s.SourceId, s.Path });
+		builder.HasKey(s => new { s.SourceId, s.RelativePath });
 
 		builder.HasOne(s => s.Source)
 			.WithMany()
@@ -49,11 +79,11 @@ internal class SongConfiguration : IEntityTypeConfiguration<Song>
 			.HasColumnName("source_id")
 			.IsRequired();
 
-		builder.Property(s => s.Path)
+		builder.Property(s => s.RelativePath)
 			.HasColumnName("path")
 			.IsRequired();
 
-		builder.Property(s => s.Hash)
+		builder.Property(s => s.FileHash)
 			.HasColumnName("hash")
 			.IsRequired();
 
@@ -79,13 +109,16 @@ internal class SongConfiguration : IEntityTypeConfiguration<Song>
 			.HasColumnName("duration")
 			.IsRequired();
 
-		builder.Property(s => s.LastModified)
+		builder.Property(s => s.FileModified)
 			.HasColumnName("last_modified")
 			.IsRequired();
 
 		builder.Property(s => s.FileSize)
 			.HasColumnName("file_size")
 			.IsRequired();
+
+		builder.Navigation(s => s.Source)
+			.AutoInclude();
 
 		// we could index things, but why?
 	}

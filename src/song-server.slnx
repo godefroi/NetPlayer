@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="SongClassifier/SongClassifier.csproj" />
-  <Project Path="SongServer/SongServer.csproj" />
+  <Project Path="SongServer.Player/SongServer.Player.csproj" />
+  <Project Path="SongServer.Ui/SongServer.Ui.csproj" />
 </Solution>

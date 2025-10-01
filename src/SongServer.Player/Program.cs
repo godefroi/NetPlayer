@@ -1,4 +1,6 @@
-﻿using SongServer.Configuration;
+﻿using System.Diagnostics;
+using Microsoft.EntityFrameworkCore;
+using SongServer.Configuration;
 using SongServer.Handlers;
 using SongServer.Services;
 using SongServer.Services.Library;
@@ -14,6 +16,7 @@ internal class Program
 		builder.Services.Configure<PlayerOptions>(builder.Configuration.GetSection(PlayerOptions.SectionName));
 		builder.Services.AddSingleton<AudioPlayer>();
 		builder.Services.AddSingleton<LibraryService>();
+		builder.Services.AddSingleton<JsonLibrary>();
 		builder.Services.AddDbContextFactory<LibraryContext>();
 
 		builder.Services.AddHostedService<AudioPlayerService>();
@@ -32,6 +35,34 @@ internal class Program
 		// 		@"\\vmhost.local\media\Audio\Full CDs",
 		// 	]);
 		// }
+
+// 		using (var scope = app.Services.CreateScope()) {
+// 			var library = scope.ServiceProvider.GetRequiredService<LibraryContext>();
+// 			var jl = scope.ServiceProvider.GetRequiredService<JsonLibrary>();
+
+// 			var songs = library.Songs
+// 				.Include(s => s.Source)
+// 				.Select(s => new JsonLibrary.JsonSong() {
+// 					SourcePath   = s.Source!.Path,
+// 					RelativePath = s.RelativePath,
+// 					Artist       = s.Artist,
+// 					Album        = s.Album,
+// 					Title        = s.Title,
+// 					TrackNumber  = s.TrackNumber,
+// 					TrackTotal   = s.TrackTotal,
+// 					Duration     = s.Duration,
+// 					FileModified = s.FileModified,
+// 					FileHash     = s.FileHash,
+// 					FileSize     = s.FileSize,
+// 				});
+// var start = Stopwatch.GetTimestamp();
+// 			await jl.Store(songs);
+// Console.WriteLine($"Stored in {Stopwatch.GetElapsedTime(start)}");
+// start = Stopwatch.GetTimestamp();
+// 			await jl.Store(songs);
+// Console.WriteLine($"Stored in {Stopwatch.GetElapsedTime(start)}");
+// 			return;
+// 		}
 
 		await app.RunAsync();
 	}

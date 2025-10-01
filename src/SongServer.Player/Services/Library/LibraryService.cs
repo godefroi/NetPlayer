@@ -54,7 +54,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 	{
 		var updated = 0;
 		var removed = 0;
-		var seen    = new ConcurrentBag<(string SourcePath, string FilePath)>();
+		var seen    = new ConcurrentBag<Uri>();
 
 		await _scanSemaphore.WaitAsync();
 
@@ -71,8 +71,8 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 			var foundSet = seen.ToHashSet();
 
 			// now, go through all the files and remove ones we didn't see
-			foreach (var f in context.Songs.Include(s => s.Source)) {
-				if (!foundSet.Contains((f.Source?.Path!, f.Path))) {
+			foreach (var f in context.Songs) {
+				if (!foundSet.Contains(f.Url)) {
 					context.Songs.Remove(f);
 				}
 			}
@@ -86,7 +86,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 		_logger?.LogInformation("Refresh complete; {processed} processed, {updated} added/updated, {removed} removed.", seen.Count, updated, removed);
 	}
 
-	public async Task<(int Processed, int Errors)> ScanDirectoryAsync(string sourcePath, ConcurrentBag<(string SourcePath, string FilePath)> foundFiles)
+	public async Task<(int Processed, int Errors)> ScanDirectoryAsync(string sourcePath, ConcurrentBag<Uri> foundFiles)
 	{
 		if (!Directory.Exists(sourcePath)) {
 			_logger?.LogWarning("Directory not found: {sourcePath}", sourcePath);
@@ -118,7 +118,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 		return (total, errors);
 	}
 
-	private async Task ProcessFileAsync(LibraryContext context, string sourcePath, string filePath, ConcurrentBag<(string SourcePath, string FilePath)> foundFiles)
+	private async Task ProcessFileAsync(LibraryContext context, string sourcePath, string filePath, ConcurrentBag<Uri> foundFiles)
 	{
 		var fileInfo = new FileInfo(filePath);
 
@@ -142,13 +142,13 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 		}
 
 		// add this file to the list of files we saw
-		foundFiles.Add((sourcePath, songPath));
+		foundFiles.Add(Song.ConvertToUri(Path.Combine(sourcePath, songPath)));
 
 		// grab the hash, we need it now
 		var fileHash = await hashTask;
 
 		// if the song hasn't changed, we're done here
-		if (song != null && song.Hash == fileHash) {
+		if (song != null && song.FileHash == fileHash) {
 			return;
 		}
 
@@ -157,15 +157,15 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 
 			var updatedSong = new Song {
 				SourceId     = source.Id,
-				Path         = songPath,
-				Hash         = fileHash,
+				RelativePath = songPath,
+				FileHash     = fileHash,
 				Artist       = CleanMetadata(tagFile.Tag.FirstPerformer) ?? "Unknown Artist",
 				Album        = CleanMetadata(tagFile.Tag.Album) ?? "Unknown Album",
 				Title        = CleanMetadata(tagFile.Tag.Title) ?? Path.GetFileNameWithoutExtension(songPath),
 				TrackNumber  = (int)tagFile.Tag.Track,
 				TrackTotal   = (int)tagFile.Tag.TrackCount,
 				Duration     = tagFile.Properties.Duration,
-				LastModified = fileInfo.LastWriteTime,
+				FileModified = fileInfo.LastWriteTime,
 				FileSize     = fileInfo.Length
 			};
 
@@ -246,7 +246,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 	{
 		using var context = await _contextFactory.CreateDbContextAsync();
 
-		var query = context.Songs.Include(s => s.Source).AsQueryable();
+		var query = context.Songs.AsQueryable();
 
 		// Apply filters based on provided criteria
 		if (!string.IsNullOrWhiteSpace(artist)) {

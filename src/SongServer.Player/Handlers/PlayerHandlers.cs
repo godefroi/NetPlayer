@@ -71,12 +71,7 @@ internal class PlayerHandlers
 			});
 		}
 
-		var song = songs[0];
-
-		// construct a URL from the source's path plus the song's path
-		var uri = new Uri($"file:///{Path.Combine(song.Source!.Path, song.Path).Replace('\\', '/')}");
-
-		player.Enqueue(uri);
+		player.Enqueue(songs[0].Url);
 
 		return TypedResults.Ok(player.GetState());
 	}

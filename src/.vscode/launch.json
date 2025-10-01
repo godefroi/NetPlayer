@@ -1,0 +1,29 @@
+{
+	// Use IntelliSense to learn about possible attributes.
+	// Hover to view descriptions of existing attributes.
+	// For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "C#: Server Debug",
+			"type": "dotnet",
+			"request": "launch",
+			"projectPath": "${workspaceFolder}/SongServer.Server/SongServer.Server.csproj"
+		},
+		{
+			"name": "C#: Ui Debug",
+			"type": "dotnet",
+			"request": "launch",
+			"projectPath": "${workspaceFolder}/SongServer.Ui/SongServer.Ui.csproj"
+		}
+	],
+	"compounds": [
+		{
+			"name": "Song Server+UI",
+			"configurations": [
+				"C#: Server Debug",
+				"C#: Ui Debug"
+			]
+		}
+	]
+}
