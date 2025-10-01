@@ -196,6 +196,15 @@ internal class AudioPlayer : IDisposable
 		}
 	}
 
+	public void Enqueue(Uri uri)
+	{
+		lock (_stateLock) {
+			lock (_queueLock) {
+				_queue.Enqueue(uri);
+			}
+		}
+	}
+
 	private async Task Play(Uri uri, CancellationToken cancellationToken = default)
 	{
 		_logger.LogInformation("Play requested for {Uri}", uri);

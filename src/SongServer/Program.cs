@@ -1,5 +1,7 @@
 ﻿using SongServer.Configuration;
+using SongServer.Handlers;
 using SongServer.Services;
+using SongServer.Services.Library;
 
 namespace SongServer;
 
@@ -12,13 +14,24 @@ internal class Program
 		builder.Services.Configure<PlayerOptions>(builder.Configuration.GetSection(PlayerOptions.SectionName));
 		builder.Services.AddSingleton<AudioPlayer>();
 		builder.Services.AddSingleton<LibraryService>();
+		builder.Services.AddDbContextFactory<LibraryContext>();
 
 		builder.Services.AddHostedService<AudioPlayerService>();
 
 		var app = builder.Build();
 
-		app.MapPlayerHandlers();
-		app.MapLibraryHandlers();
+		PlayerHandlers.Map(app);
+		LibraryHandlers.Map(app);
+
+		// using (var scope = app.Services.CreateScope()) {
+		// 	var library = scope.ServiceProvider.GetRequiredService<LibraryService>();
+
+		// 	await library.InitializeAsync([
+		// 		@"\\vmhost.local\media\Audio\Soundtracks",
+		// 		@"\\vmhost.local\media\Audio\Singles",
+		// 		@"\\vmhost.local\media\Audio\Full CDs",
+		// 	]);
+		// }
 
 		await app.RunAsync();
 	}

@@ -1,166 +1,182 @@
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Security.Cryptography;
-using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 
 namespace SongServer.Services.Library;
 
-public class LibraryService
+public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, ILogger<LibraryService>? logger = null) : IDisposable
 {
 	private readonly static FrozenSet<string> _extensions = [".mp3", ".opus", ".flac"];
-	private readonly static JsonSerializerOptions JsonOptions = new() {
-		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-		WriteIndented = true
-	};
 
-	private readonly ConcurrentDictionary<string, LibrarySong> _library = new();
-	private readonly string _databasePath;
+	private readonly IDbContextFactory<LibraryContext> _contextFactory = contextFactory;
 	private readonly SemaphoreSlim _scanSemaphore = new(1, 1);
-	private readonly ILogger<LibraryService>? _logger;
-	
-	public event EventHandler<ScanProgressEventArgs>? ScanProgress;
-	public event EventHandler<ScanCompletedEventArgs>? ScanCompleted;
+	private readonly ILogger<LibraryService>? _logger = logger;
 
-	public LibraryService(string databasePath = "music_library.json", ILogger<LibraryService>? logger = null)
+	public void Dispose()
 	{
-		_databasePath = databasePath;
-		_logger = logger;
-		LoadDatabase();
+		_scanSemaphore.Dispose();
+		GC.SuppressFinalize(this);
 	}
 
 	public async Task InitializeAsync(IEnumerable<string> libraryPaths)
 	{
+		libraryPaths = [.. libraryPaths.Select(Path.GetFullPath)];
+
 		await _scanSemaphore.WaitAsync();
-		try
-		{
-			var scanTasks = libraryPaths.Select(path => ScanDirectoryAsync(path));
-			await Task.WhenAll(scanTasks);
-			await SaveDatabaseAsync();
-		}
-		finally
-		{
-			_scanSemaphore.Release();
-		}
-	}
 
-	public async Task ScanDirectoryAsync(string directoryPath)
-	{
-		if (!Directory.Exists(directoryPath))
-		{
-			_logger?.LogWarning("Directory not found: {DirectoryPath}", directoryPath);
-			return;
-		}
+		try {
+			using var context = await _contextFactory.CreateDbContextAsync();
+			
+			// ensure the database is created
+			await context.Database.EnsureCreatedAsync();
 
-		_logger?.LogInformation("Starting scan of directory: {DirectoryPath}", directoryPath);
+			// add sources to database if they don't exist
+			foreach (var path in libraryPaths) {
+				var existingSource = await context.Sources.SingleOrDefaultAsync(s => s.Path == path);
 
-		var supportedFiles = Directory
-			.EnumerateFiles(directoryPath, "*.*", SearchOption.AllDirectories)
-			.Where(file => _extensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
-			.ToList();
-
-		var totalFiles = supportedFiles.Count;
-		var processedFiles = 0;
-		var newFiles = 0;
-		var updatedFiles = 0;
-		var errors = 0;
-
-		_logger?.LogInformation("Found {TotalFiles} music files to process", totalFiles);
-
-		var tasks = supportedFiles.Select(async filePath =>
-		{
-			try
-			{
-				await ProcessFileAsync(filePath);
-				
-				var processed = Interlocked.Increment(ref processedFiles);
-				
-				if (processed % 100 == 0 || processed == totalFiles)
-				{
-					ScanProgress?.Invoke(this, new ScanProgressEventArgs
-					{
-						TotalFiles = totalFiles,
-						ProcessedFiles = processed,
-						CurrentFile = filePath
-					});
+				if (existingSource == null) {
+					context.Set<Source>().Add(new Source { Path = path });
 				}
 			}
-			catch (Exception ex)
-			{
+
+			// save the sources
+			await context.SaveChangesAsync();
+		} finally {
+			_scanSemaphore.Release();
+		}
+
+		// now refresh the library
+		await RefreshAsync();
+	}
+
+	public async Task RefreshAsync()
+	{
+		var updated = 0;
+		var removed = 0;
+		var seen    = new ConcurrentBag<(string SourcePath, string FilePath)>();
+
+		await _scanSemaphore.WaitAsync();
+
+		try {
+			using var context = await _contextFactory.CreateDbContextAsync();
+
+			// get the list of library paths
+			var libraryPaths = await context.Sources.Select(s => s.Path).ToListAsync();
+
+			// scan the source paths
+			var (processed, errors) = (await Task.WhenAll(libraryPaths.Select(p => ScanDirectoryAsync(p, seen))))
+				.Aggregate((a, b) => (a.Processed + b.Processed, a.Errors + b.Errors));
+
+			var foundSet = seen.ToHashSet();
+
+			// now, go through all the files and remove ones we didn't see
+			foreach (var f in context.Songs.Include(s => s.Source)) {
+				if (!foundSet.Contains((f.Source?.Path!, f.Path))) {
+					context.Songs.Remove(f);
+				}
+			}
+
+			// save the delete changes
+			removed = await context.SaveChangesAsync();
+		} finally {
+			_scanSemaphore.Release();
+		}
+
+		_logger?.LogInformation("Refresh complete; {processed} processed, {updated} added/updated, {removed} removed.", seen.Count, updated, removed);
+	}
+
+	public async Task<(int Processed, int Errors)> ScanDirectoryAsync(string sourcePath, ConcurrentBag<(string SourcePath, string FilePath)> foundFiles)
+	{
+		if (!Directory.Exists(sourcePath)) {
+			_logger?.LogWarning("Directory not found: {sourcePath}", sourcePath);
+			return (0, 0);
+		}
+
+		_logger?.LogInformation("Starting scan of directory: {sourcePath}", sourcePath);
+
+		var total  = 0;
+		var errors = 0;
+		var files  = Directory
+			.EnumerateFiles(sourcePath, "*.*", SearchOption.AllDirectories)
+			.Where(file => _extensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase));
+
+		using var context = await _contextFactory.CreateDbContextAsync();
+		
+		await Task.WhenAll(files.Select(async filePath => {
+			try {
+				Interlocked.Increment(ref total);
+				await ProcessFileAsync(context, sourcePath, filePath, foundFiles);
+			} catch (Exception ex) {
 				Interlocked.Increment(ref errors);
 				_logger?.LogError(ex, "Error processing file: {FilePath}", filePath);
 			}
-		});
+		}));
 
-		await Task.WhenAll(tasks);
+		await context.SaveChangesAsync();
 
-		ScanCompleted?.Invoke(this, new ScanCompletedEventArgs
-		{
-			TotalFiles = totalFiles,
-			NewFiles = newFiles,
-			UpdatedFiles = updatedFiles,
-			Errors = errors
-		});
-
-		_logger?.LogInformation("Scan completed. Processed: {ProcessedFiles}, Errors: {Errors}", processedFiles, errors);
+		return (total, errors);
 	}
 
-	private async Task ProcessFileAsync(string filePath)
+	private async Task ProcessFileAsync(LibraryContext context, string sourcePath, string filePath, ConcurrentBag<(string SourcePath, string FilePath)> foundFiles)
 	{
 		var fileInfo = new FileInfo(filePath);
-		if (!fileInfo.Exists) return;
 
-		var fileHash = await CalculateFileHashAsync(filePath);
-		var normalizedPath = Path.GetFullPath(filePath);
-
-		// Check if file already exists and hasn't changed
-		if (_library.TryGetValue(normalizedPath, out var existingSong) && 
-			existingSong.FileHash == fileHash && 
-			existingSong.LastModified == fileInfo.LastWriteTime)
-		{
-			return; // File unchanged
+		if (!fileInfo.Exists) {
+			return;
 		}
 
-		try
-		{
+		var hashTask = CalculateFileHashAsync(filePath);
+		var songPath = Path.GetRelativePath(sourcePath, Path.GetFullPath(filePath));
+		var source   = default(Source?);
+		var song     = default(Song?);
+
+		lock (context) {
+			source = context.Sources.SingleOrDefault(s => s.Path == sourcePath);
+
+			if (source == null) {
+				throw new InvalidOperationException("The specified source path cannot be found in the database.");
+			}
+
+			song = context.Songs.Find(source.Id, songPath);
+		}
+
+		// add this file to the list of files we saw
+		foundFiles.Add((sourcePath, songPath));
+
+		// grab the hash, we need it now
+		var fileHash = await hashTask;
+
+		// if the song hasn't changed, we're done here
+		if (song != null && song.Hash == fileHash) {
+			return;
+		}
+
+		try {
 			using var tagFile = TagLib.File.Create(filePath);
-			var tag = tagFile.Tag;
 
-			var song = new LibrarySong
-			{
-				FilePath = normalizedPath,
-				FileHash = fileHash,
-				Artist = CleanMetadata(tag.FirstPerformer) ?? "Unknown Artist",
-				Album = CleanMetadata(tag.Album) ?? "Unknown Album",
-				Title = CleanMetadata(tag.Title) ?? Path.GetFileNameWithoutExtension(filePath),
-				TrackNumber = (int)tag.Track,
-				TrackTotal = (int)tag.TrackCount,
-				Duration = tagFile.Properties.Duration,
+			var updatedSong = new Song {
+				SourceId     = source.Id,
+				Path         = songPath,
+				Hash         = fileHash,
+				Artist       = CleanMetadata(tagFile.Tag.FirstPerformer) ?? "Unknown Artist",
+				Album        = CleanMetadata(tagFile.Tag.Album) ?? "Unknown Album",
+				Title        = CleanMetadata(tagFile.Tag.Title) ?? Path.GetFileNameWithoutExtension(songPath),
+				TrackNumber  = (int)tagFile.Tag.Track,
+				TrackTotal   = (int)tagFile.Tag.TrackCount,
+				Duration     = tagFile.Properties.Duration,
 				LastModified = fileInfo.LastWriteTime,
-				FileSize = fileInfo.Length
+				FileSize     = fileInfo.Length
 			};
 
-			_library[normalizedPath] = song;
-		}
-		catch (Exception ex)
-		{
-			_logger?.LogError(ex, "Failed to read metadata for file: {FilePath}", filePath);
-			
-			// Add file with minimal metadata if tag reading fails
-			var song = new LibrarySong
-			{
-				FilePath = normalizedPath,
-				FileHash = fileHash,
-				Artist = "Unknown Artist",
-				Album = "Unknown Album",
-				Title = Path.GetFileNameWithoutExtension(filePath),
-				TrackNumber = 0,
-				TrackTotal = 0,
-				Duration = TimeSpan.Zero,
-				LastModified = fileInfo.LastWriteTime,
-				FileSize = fileInfo.Length
-			};
-
-			_library[normalizedPath] = song;
+			// update (or add) the song to the database
+			if (song != null) {
+				context.Entry(song).CurrentValues.SetValues(updatedSong);
+			} else {
+				context.Songs.Add(updatedSong);
+			}
+		} catch (Exception ex) {
+			_logger?.LogError(ex, "Failed to read metadata for file: {FilePath}", songPath);
 		}
 	}
 
@@ -169,191 +185,82 @@ public class LibraryService
 		return string.IsNullOrWhiteSpace(metadata) ? null : metadata.Trim();
 	}
 
-	private async Task<string> CalculateFileHashAsync(string filePath)
+	private static async Task<string> CalculateFileHashAsync(string filePath)
 	{
 		using var stream = File.OpenRead(filePath);
 		using var sha256 = SHA256.Create();
-		
+
 		var hash = await sha256.ComputeHashAsync(stream);
-		return Convert.ToHexString(hash);
+		return Convert.ToHexStringLower(hash);
 	}
 
-	public async Task SaveDatabaseAsync()
+	public async Task<List<(string Artist, string Album)>> GetAlbums()
 	{
-		try
-		{
-			var songs = _library.Values.OrderBy(s => s.Artist).ThenBy(s => s.Album).ThenBy(s => s.TrackNumber).ToList();
-			var json = JsonSerializer.Serialize(songs, JsonOptions);
-			
-			await File.WriteAllTextAsync(_databasePath, json);
-			_logger?.LogInformation("Database saved with {Count} songs", songs.Count);
-		}
-		catch (Exception ex)
-		{
-			_logger?.LogError(ex, "Failed to save database to {DatabasePath}", _databasePath);
-		}
-	}
+		using var context = await _contextFactory.CreateDbContextAsync();
 
-	private void LoadDatabase()
-	{
-		try
-		{
-			if (!File.Exists(_databasePath))
-			{
-				_logger?.LogInformation("Database file not found, starting with empty library");
-				return;
-			}
-
-			var json = File.ReadAllText(_databasePath);
-			var songs = JsonSerializer.Deserialize<List<LibrarySong>>(json, JsonOptions);
-			
-			if (songs != null)
-			{
-				_library.Clear();
-				foreach (var song in songs)
-				{
-					_library[song.FilePath] = song;
-				}
-				
-				_logger?.LogInformation("Loaded {Count} songs from database", songs.Count);
-			}
-		}
-		catch (Exception ex)
-		{
-			_logger?.LogError(ex, "Failed to load database from {DatabasePath}", _databasePath);
-		}
-	}
-
-	// Search methods
-	public IEnumerable<LibrarySong> FindByArtist(string artist, bool exactMatch = false)
-	{
-		return _library.Values.Where(song => 
-			exactMatch 
-				? string.Equals(song.Artist, artist, StringComparison.OrdinalIgnoreCase)
-				: song.Artist.Contains(artist, StringComparison.OrdinalIgnoreCase)
-		);
-	}
-
-	public IEnumerable<LibrarySong> FindByAlbum(string album, bool exactMatch = false)
-	{
-		return _library.Values.Where(song => 
-			exactMatch 
-				? string.Equals(song.Album, album, StringComparison.OrdinalIgnoreCase)
-				: song.Album.Contains(album, StringComparison.OrdinalIgnoreCase)
-		);
-	}
-
-	public IEnumerable<LibrarySong> FindByTitle(string title, bool exactMatch = false)
-	{
-		return _library.Values.Where(song => 
-			exactMatch 
-				? string.Equals(song.Title, title, StringComparison.OrdinalIgnoreCase)
-				: song.Title.Contains(title, StringComparison.OrdinalIgnoreCase)
-		);
-	}
-
-	public IEnumerable<LibrarySong> FindByArtistAndAlbum(string artist, string album)
-	{
-		return _library.Values.Where(song => 
-			song.Artist.Contains(artist, StringComparison.OrdinalIgnoreCase) &&
-			song.Album.Contains(album, StringComparison.OrdinalIgnoreCase)
-		);
-	}
-
-	public IEnumerable<LibrarySong> Search(string query)
-	{
-		return _library.Values.Where(song =>
-			song.Artist.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-			song.Album.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-			song.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
-		);
-	}
-
-	public LibrarySong? FindByPath(string filePath)
-	{
-		var normalizedPath = Path.GetFullPath(filePath);
-		return _library.TryGetValue(normalizedPath, out var song) ? song : null;
-	}
-
-	public IEnumerable<LibrarySong> GetAllSongs()
-	{
-		return _library.Values.OrderBy(s => s.Artist).ThenBy(s => s.Album).ThenBy(s => s.TrackNumber);
-	}
-
-	public IEnumerable<string> GetAllArtists()
-	{
-		return _library.Values.Select(s => s.Artist).Distinct().OrderBy(a => a);
-	}
-
-	public IEnumerable<string> GetAllAlbums()
-	{
-		return _library.Values.Select(s => s.Album).Distinct().OrderBy(a => a);
-	}
-
-	public IEnumerable<(string Artist, string Album)> GetAllAlbumsByArtist()
-	{
-		return _library.Values
-			.Select(s => (s.Artist, s.Album))
-			.Distinct()
+		return await context.Songs
 			.OrderBy(a => a.Artist)
-			.ThenBy(a => a.Album);
-	}
-
-	public int TotalSongs => _library.Count;
-
-	public async Task RefreshAsync()
-	{
-		// Get all unique directory paths from current library
-		var directories = _library.Values
-			.Select(s => Path.GetDirectoryName(s.FilePath))
-			.Where(d => !string.IsNullOrEmpty(d))
-			.Cast<string>()
+			.ThenBy(a => a.Album)
+			.Select(s => new { s.Artist, s.Album })
 			.Distinct()
-			.ToList();
-
-		if (directories.Count > 0)
-		{
-			await InitializeAsync(directories);
-		}
+			.Select(x => ValueTuple.Create(x.Artist, x.Album))
+			.ToListAsync();
 	}
 
-	public async Task RemoveDeletedFilesAsync()
+	public async Task<List<Song>> GetAlbum(string artist, string album)
 	{
-		var filesToRemove = new List<string>();
-		
-		foreach (var song in _library.Values)
-		{
-			if (!File.Exists(song.FilePath))
-			{
-				filesToRemove.Add(song.FilePath);
-			}
-		}
+		using var context = await _contextFactory.CreateDbContextAsync();
 
-		foreach (var filePath in filesToRemove)
-		{
-			_library.TryRemove(filePath, out _);
-		}
-
-		if (filesToRemove.Count > 0)
-		{
-			_logger?.LogInformation("Removed {Count} deleted files from library", filesToRemove.Count);
-			await SaveDatabaseAsync();
-		}
+		return await context.Songs
+			.Where(song => song.Artist == artist && song.Album == album)
+			.ToListAsync();
 	}
-}
 
-public class ScanProgressEventArgs : EventArgs
-{
-	public int TotalFiles { get; set; }
-	public int ProcessedFiles { get; set; }
-	public string CurrentFile { get; set; } = string.Empty;
-	public double ProgressPercentage => TotalFiles > 0 ? (double)ProcessedFiles / TotalFiles * 100 : 0;
-}
+	public async Task<List<Song>> SearchLibraryAsync(string query)
+	{
+		if (string.IsNullOrWhiteSpace(query)) {
+			throw new ArgumentException("Query parameter is required", nameof(query));
+		}
 
-public class ScanCompletedEventArgs : EventArgs
-{
-	public int TotalFiles { get; set; }
-	public int NewFiles { get; set; }
-	public int UpdatedFiles { get; set; }
-	public int Errors { get; set; }
+		using var context = await _contextFactory.CreateDbContextAsync();
+
+		return await context.Songs.Where(song =>
+			song.Artist.Contains(query) ||
+			song.Album.Contains(query) ||
+			song.Title.Contains(query)
+		).ToListAsync();
+	}
+
+	public async Task<(long Songs, long Artists, long Albums)> GetLibraryStatsAsync()
+	{
+		using var context = await _contextFactory.CreateDbContextAsync();
+
+		var totalSongs   = await context.Songs.CountAsync();
+		var totalArtists = await context.Songs.Select(s => s.Artist).Distinct().CountAsync();
+		var totalAlbums  = await context.Songs.Select(s => s.Album).Distinct().CountAsync();
+
+		return (totalSongs, totalArtists, totalAlbums);
+	}
+
+	public async Task<List<Song>> FindSongsAsync(string? artist, string? album, string? title)
+	{
+		using var context = await _contextFactory.CreateDbContextAsync();
+
+		var query = context.Songs.Include(s => s.Source).AsQueryable();
+
+		// Apply filters based on provided criteria
+		if (!string.IsNullOrWhiteSpace(artist)) {
+			query = query.Where(s => s.Artist.Contains(artist));
+		}
+
+		if (!string.IsNullOrWhiteSpace(album)) {
+			query = query.Where(s => s.Album.Contains(album));
+		}
+
+		if (!string.IsNullOrWhiteSpace(title)) {
+			query = query.Where(s => s.Title.Contains(title));
+		}
+
+		return await query.ToListAsync();
+	}
 }

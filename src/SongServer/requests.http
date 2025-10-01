@@ -12,3 +12,12 @@ GET http://localhost:5000/player/play
 
 ###
 GET http://localhost:5000/player/advance
+
+###
+GET http://localhost:5000/library/albums
+
+###
+GET http://localhost:5000/library/album/Radiohead/Amnesiac
+
+###
+GET http://localhost:5000/library/search?query=line
