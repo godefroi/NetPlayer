@@ -1,5 +1,9 @@
 <Solution>
-  <Project Path="SongClassifier/SongClassifier.csproj" />
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
   <Project Path="SongServer.Player/SongServer.Player.csproj" />
   <Project Path="SongServer.Ui/SongServer.Ui.csproj" />
 </Solution>
