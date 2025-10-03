@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-using Microsoft.EntityFrameworkCore;
-using SongServer.Configuration;
+﻿using SongServer.Configuration;
 using SongServer.Handlers;
 using SongServer.Services;
 using SongServer.Services.Library;
@@ -18,13 +16,23 @@ internal class Program
 		builder.Services.AddSingleton<LibraryService>();
 		builder.Services.AddSingleton<JsonLibrary>();
 		builder.Services.AddDbContextFactory<LibraryContext>();
-
 		builder.Services.AddHostedService<AudioPlayerService>();
+
+		builder.Services.AddCors();
+
+		builder.Services.AddSignalR();
 
 		var app = builder.Build();
 
 		PlayerHandlers.Map(app);
 		LibraryHandlers.Map(app);
+
+		app.MapHub<PlayerHub>("/player/hub");
+
+		app.UseCors(builder => builder
+			.AllowAnyOrigin()
+			.AllowAnyHeader()
+			.AllowAnyMethod());
 
 		// using (var scope = app.Services.CreateScope()) {
 		// 	var library = scope.ServiceProvider.GetRequiredService<LibraryService>();

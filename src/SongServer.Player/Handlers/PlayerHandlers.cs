@@ -21,32 +21,28 @@ internal class PlayerHandlers
 		group.MapGet("", PlayerHandlers.GetState);
 	}
 
-	public static async Task<PlayerState> Play([FromServices]AudioPlayer player, CancellationToken cancellationToken = default)
+	public static PlayerState Play([FromServices]AudioPlayer player, CancellationToken cancellationToken = default)
 	{
-		await player.Play();
+		player.Play();
 
-		return player.GetState();
+		return new PlayerState(State.Playing, null, 0, 0);//player.GetState();
 	}
 
-	public static Task Pause([FromServices]AudioPlayer player, CancellationToken cancellationToken = default)
-	{
-		player.Pause();
+	public static void Pause([FromServices]AudioPlayer player) => player.Pause();
 
-		return Task.CompletedTask;
+	public static void Stop([FromServices]AudioPlayer player) => player.Stop();
+
+	public static PlayerState Advance([FromServices]AudioPlayer player, CancellationToken cancellationToken = default)
+	{
+		player.Advance();
+
+		return new PlayerState(State.Playing, null, 0, 0);//player.GetState();
 	}
 
-	public static Task Stop([FromServices]AudioPlayer player, CancellationToken cancellationToken = default) =>
-		player.Stop();
-
-	public static async Task<PlayerState> Advance([FromServices]AudioPlayer player, CancellationToken cancellationToken = default)
+	public static Task<PlayerState> GetState(AudioPlayer player, CancellationToken cancellationToken = default)
 	{
-		await player.Advance();
-
-		return player.GetState();
+		return Task.FromResult(new PlayerState(State.Playing, null, 0, 0));//player.GetState();
 	}
-
-	public static Task<PlayerState> GetState(AudioPlayer player, CancellationToken cancellationToken = default) =>
-		Task.FromResult(player.GetState());
 
 	public static async Task<Results<ProblemHttpResult, Ok<PlayerState>>> Enqueue([FromServices]AudioPlayer player, [FromServices]LibraryService library, string? artist, string? album, string? title, CancellationToken cancellationToken = default)
 	{
@@ -73,6 +69,7 @@ internal class PlayerHandlers
 
 		player.Enqueue(songs[0].Url);
 
-		return TypedResults.Ok(player.GetState());
+		//return TypedResults.Ok(player.GetState());
+		return TypedResults.Ok(new PlayerState(State.Stopped, null, 0, 0));
 	}
 }

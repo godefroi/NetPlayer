@@ -28,9 +28,13 @@ internal class AudioPlayerService(AudioPlayer player, IOptions<PlayerOptions> op
 		_logger.LogInformation("Loading {count} entries from playlist.", playlist.Entries.Count);
 
 		_player.SetPlaylist(playlist, state);
-		//_ = _player.Play();
+		//_player.Play();
 	}
 
-	public Task StopAsync(CancellationToken cancellationToken) =>
+	public Task StopAsync(CancellationToken cancellationToken)
+	{
 		_player.Stop();
+
+		return Task.CompletedTask;
+	}
 }

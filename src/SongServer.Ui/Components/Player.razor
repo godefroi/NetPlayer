@@ -1,0 +1,121 @@
+﻿@using SongServer.Services
+@using Microsoft.AspNetCore.SignalR.Client
+@inject PlayerClient _player
+@implements IAsyncDisposable
+
+<div class="player-container">
+	<h3>Player</h3>
+
+	@if (_songMetadata != null) {
+		<div class="current-track">
+			<h4>Now Playing</h4>
+			<div class="track-info">
+				<div class="track-title">@_songMetadata.Title</div>
+				<div class="track-artist">@_songMetadata.Artist</div>
+				<div class="track-album">@_songMetadata.Album</div>
+				@if (_songMetadata.TrackTotal > 0)
+				{
+					<div class="track-number">Track @_songMetadata.TrackNumber of @_songMetadata.TrackTotal</div>
+				}
+			</div>
+			
+			<div class="playback-info">
+				<div class="position">@FormatTime(_songPosition) / @FormatTime(_songMetadata.Duration)</div>
+				<div class="progress-bar">
+					<div class="progress" style="width: @GetProgressPercentage()%"></div>
+				</div>
+			</div>
+		</div>
+	} else {
+		<div class="no-track">
+			<p>No track loaded</p>
+		</div>
+	}
+
+	<div class="player-status">
+		<strong>Status:</strong> @(_state.ToString() ?? "Unknown")
+	</div>
+
+	<div class="player-controls">
+		<button @onclick="Play" disabled="@(_state == State.Playing)">Play</button>
+		<button @onclick="Pause" disabled="@(_state != State.Playing)">Pause</button>
+		<button @onclick="Stop" disabled="@(_state == State.Stopped)">Stop</button>
+		<button @onclick="Advance">Next</button>
+	</div>
+</div>
+
+@code {
+	private State _state;
+	private HubConnection? _hub;
+	private TimeSpan? _songPosition;
+	private SongMetadata? _songMetadata;
+
+	protected override async Task OnInitializedAsync()
+	{
+		_hub = new HubConnectionBuilder()
+			.WithUrl("http://localhost:5000/player/hub")
+			.WithStatefulReconnect()
+			.WithAutomaticReconnect([TimeSpan.FromSeconds(0), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)])
+			.Build();
+
+		_hub.On<State, TimeSpan?>("UpdatePosition", (state, position) => {
+			_state = state;
+			_songPosition = position;
+			InvokeAsync(StateHasChanged);
+		});
+
+		_hub.On<SongMetadata?>("UpdateMedia", song => {
+			_songMetadata = song;
+			InvokeAsync(StateHasChanged);
+		});
+
+		await _hub.StartAsync();
+	}
+
+	private async Task Play()
+	{
+		await _player.Play();
+	}
+
+	private async Task Pause()
+	{
+		await _player.Pause();
+	}
+
+	private async Task Stop()
+	{
+		await _player.Stop();
+	}
+
+	private async Task Advance()
+	{
+		await _player.Advance();
+	}
+
+	private string FormatTime(TimeSpan? time)
+	{
+		if (time == null) {
+			return "00:00:00";
+		} else if (time.Value.TotalHours >= 1) {
+			return time.Value.ToString(@"h\:mm\:ss");
+		}
+
+		return time.Value.ToString(@"m\:ss");
+	}
+
+	private double GetProgressPercentage()
+	{
+		if (_songMetadata == null || _songMetadata?.Duration.TotalSeconds == 0 || _songPosition == null) {
+			return 0;
+		}
+
+		return (_songPosition.Value.TotalSeconds / _songMetadata!.Duration.TotalSeconds) * 100;
+	}
+
+	public async ValueTask DisposeAsync()
+	{
+		if (_hub is not null) {
+			await _hub.DisposeAsync();
+		}
+	}
+}

@@ -1,4 +1,5 @@
 using LibVLCSharp.Shared;
+using Microsoft.AspNetCore.SignalR;
 
 namespace SongServer.Services;
 
@@ -7,22 +8,24 @@ internal class AudioPlayer : IDisposable
 	private readonly LibVLC _vlc;
 	private readonly MediaPlayer _player;
 	private readonly Lock _stateLock = new();
-	private readonly Lock _queueLock = new();
+	private readonly IHubContext<PlayerHub, IPlayerHub> _hub;
 	private readonly ILogger _logger;
 	private readonly Queue<Uri> _queue = [];
-	private Media? _currentMedia;
 	private bool _disposed = false;
 	private Playlist _list = Playlist.Empty;
 	private PlaylistState _state = PlaylistState.Empty;
-	private PlayerState _playerState = new(State.Stopped, null, 0, 0);
+	private SongMetadata? _currentSong = null;
+	private TimeSpan _currentPosition = TimeSpan.FromSeconds(-1);
+	private State _currentState = State.Stopped;
 
 	static AudioPlayer()
 	{
 		Core.Initialize();
 	}
 
-	public AudioPlayer(ILogger<AudioPlayer> logger)
+	public AudioPlayer(IHubContext<PlayerHub, IPlayerHub> hub, ILogger<AudioPlayer> logger)
 	{
+		_hub    = hub;
 		_logger = logger;
 		_vlc    = new();
 		_player = new(_vlc) {
@@ -43,28 +46,17 @@ internal class AudioPlayer : IDisposable
 		_player.Playing += HandlePlaying;
 		_player.Paused += HandlePaused;
 		_player.Stopped += HandleStopped;
+		_player.MediaChanged += HandleMediaChanged;
+		_player.PositionChanged += HandlePositionChanged;
 	}
 
-	~AudioPlayer()
-	{
-		Dispose(false);
-	}
+	~AudioPlayer() => Dispose(false);
 
 	protected virtual void Dispose(bool disposing)
 	{
 		if (!_disposed) {
 			if (disposing) {
-				lock (_stateLock) {
-					_currentMedia?.Dispose();
-					_currentMedia = null;
-				}
-
-				_player.EndReached -= HandleSongEnd;
-				_player.Playing -= HandlePlaying;
-				_player.Paused -= HandlePaused;
-				_player.Stopped -= HandleStopped;
 				_player.Dispose();
-
 				_vlc.Dispose();
 			}
 
@@ -79,67 +71,29 @@ internal class AudioPlayer : IDisposable
 		GC.SuppressFinalize(this);
 	}
 
-	public Task Play()
+	public void Play()
+	{
+		_logger.LogInformation("Play() called. IsPlaying: {playing} WillPlay: {willPlay} State: {state}", _player.IsPlaying, _player.WillPlay, _currentState);
+
+		// if we will play (i.e. we have media), just do that
+		// if we're paused, this will resume
+		// if we stopped (we're not paused), WillPlay is false
+		if (_player.WillPlay) {
+			_player.Play();
+			return;
+		}
+
+		// otherwise, we need to get new media and play that
+		Advance();
+	}
+
+	public void Pause() => _player.Pause();
+
+	public void Stop() => _player.Stop();
+
+	public void Advance()
 	{
 		lock (_stateLock) {
-			// if we're already playing, then we don't have to do anything
-			if (_playerState.State == State.Playing) {
-				return Task.CompletedTask;
-			}
-
-			// if we're paused (i.e. we have media), just unpause it
-			if (_playerState.State == State.Paused) {
-				_player.SetPause(false);
-				return Task.CompletedTask;
-			}
-
-			// if we've set our current media, play that, otherwise
-			// advance to the next song (in whatever way)
-			if (_currentMedia != null) {
-				_player.Play(_currentMedia);
-			} else if (_list != null) {
-				return Advance();
-			}
-
-			return Task.CompletedTask;
-		}
-	}
-
-	public void Pause() 
-	{
-		lock (_stateLock) {
-			_player.Pause();
-			UpdatePlayerState(State.Paused);
-		}
-	}
-
-	public async Task Stop()
-	{
-		if (_playerState.State != State.Stopped) {
-			await Task.Run(() => {
-				lock (_stateLock) {
-					if (_playerState.State != State.Stopped) {
-						_player.Stop();
-						_player.Media = null;
-						_currentMedia?.Dispose();
-						_currentMedia = null;
-						_playerState = _playerState with {
-							Song = null,
-						};
-						UpdatePlayerState(State.Stopped);
-					}
-				}
-			});
-		}
-	}
-
-	public Task Advance()
-	{
-		// NOTE NOTE NOTE
-		// we might already be locking on the state lock; don't deadlock!
-		lock (_queueLock) {
-			_logger.LogDebug("Advancing to the next song. State: {State}", _playerState.State);
-
 			// if we have no songs in the queue, then put the next song from
 			// the playlist into the queue, if there are any songs in it
 			if (_queue.Count == 0 && _list.Entries.Count > 0) {
@@ -155,94 +109,43 @@ internal class AudioPlayer : IDisposable
 			// now, play the next song in the queue
 			if (_queue.Count > 0) {
 				_logger.LogDebug("Advancing to the next song in the queue");
-				return Play(_queue.Dequeue());
+				Play(_queue.Dequeue());
 			} else {
 				_logger.LogWarning("Cannot advance, nothing to play!");
-				return Task.CompletedTask;
 			}
 		}
 	}
 
 	public void SetPlaylist(Playlist list, PlaylistState state)
 	{
-		// we lock the state outside, because that's the order that we lock
-		// when we're calling Advance() and Play() and whatever...
 		lock (_stateLock) {
-			lock (_queueLock) {
-				_list  = list;
-				_state = state;
-
-				_playerState = _playerState with { ListLength = _list.Entries.Count };
-			}
+			_list  = list;
+			_state = state;
 		}
 	}
 
-	public PlayerState GetState()
+	public (State State, SongMetadata? Song, TimeSpan? Position) GetState()
 	{
 		lock (_stateLock) {
-			if (_playerState.Song != null && _currentMedia != null) {
-				
-			}
-			// Update the current position if we're playing/paused and have media
-			if (_currentMedia != null && _playerState.Song != null && (_playerState.State == State.Playing || _playerState.State == State.Paused)) {
-				var len = TimeSpan.FromMilliseconds(_currentMedia.Duration);
-				var currentPosition = len * _player.Position;
-				
-				var updatedSong = _playerState.Song with { Position = currentPosition };
-				return _playerState with { Song = updatedSong };
-			}
-			
-			return _playerState;
+			return (_currentState, _currentSong, _currentPosition);
 		}
 	}
 
 	public void Enqueue(Uri uri)
 	{
 		lock (_stateLock) {
-			lock (_queueLock) {
-				_queue.Enqueue(uri);
-			}
+			_queue.Enqueue(uri);
 		}
 	}
 
-	private async Task Play(Uri uri, CancellationToken cancellationToken = default)
+	private void Play(Uri uri)
 	{
 		_logger.LogInformation("Play requested for {Uri}", uri);
 
-		// stop, in case we're already playing
-		await Stop();
-
-		Task parseTask;
-
-		lock (_stateLock) {
-			_currentMedia = new Media(_vlc, uri);
-			_currentMedia.ParsedChanged += HandleMediaParse;
-			parseTask = _currentMedia.Parse(MediaParseOptions.ParseLocal | MediaParseOptions.ParseNetwork | MediaParseOptions.FetchLocal | MediaParseOptions.FetchNetwork, 1000, cancellationToken);
-			_player.Play(_currentMedia);
-		}
-
-		// might as well wait for the parse to finish once...
-		await parseTask;
-
-		using var tcs = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
-		// wait up to 1000ms for the player to start playing
-		tcs.CancelAfter(1000);
-
-		// here we need to wait until the player thinks it's playing, plus
-		// however much metadata we want to have been parsed is parsed
-		while (!tcs.IsCancellationRequested) {
-			lock (_stateLock) {
-				if (_playerState.State == State.Playing) {
-					break;
-				}
-			}
-
-			await Task.Delay(10, tcs.Token);
-		}
+		_player.Play(new Media(_vlc, uri));
 	}
 
-	private void HandleSongEnd(object? sender, EventArgs eventArgs) => _ = Task.Run(Advance);
+	private void HandleSongEnd(object? sender, EventArgs eventArgs) => Task.Run(Advance);
 
 	private void HandlePlaying(object? sender, EventArgs eventArgs) => UpdatePlayerState(State.Playing);
 
@@ -250,46 +153,95 @@ internal class AudioPlayer : IDisposable
 
 	private void HandleStopped(object? sender, EventArgs eventArgs) => UpdatePlayerState(State.Stopped);
 
+	private void HandleMediaChanged(object? sender, MediaPlayerMediaChangedEventArgs eventArgs)
+	{
+		var media = eventArgs.Media;
+
+		// LibVLCSharp events are exceedingly weird; we hook the event, lose the
+		// instance, but the event still happens; the instance isn't the sender,
+		// there's another class (EventManager) that ends up sending the event
+		media.ParsedChanged += HandleMediaParse;
+
+		_ = media.Parse(MediaParseOptions.ParseLocal | MediaParseOptions.ParseNetwork | MediaParseOptions.FetchLocal | MediaParseOptions.FetchNetwork, 1000);
+	}
+
+	private void HandlePositionChanged(object? sender, MediaPlayerPositionChangedEventArgs eventArgs)
+	{
+		using var media = _player.Media;
+
+		if (media == null) {
+			// dunno what to do here... presumably things have gone
+			// quite wrong.
+			return;
+		}
+
+		var duration = media.Duration;
+		var position = TimeSpan.FromMilliseconds(duration) * eventArgs.Position;
+		var curState = State.Stopped;
+		var sendPos  = false;
+
+		lock (_stateLock) {
+			// only send(/update) the event if position changed by enough
+			if (Math.Abs((position - _currentPosition).TotalSeconds) > 1.0) {
+				_currentPosition = position;
+				curState = _currentState;
+				sendPos = true;
+			}
+		}
+
+		if (sendPos) {
+			_hub.Clients.All.UpdatePosition(curState, position);
+		}
+	}
+
 	private void HandleMediaParse(object? sender, MediaParsedChangedEventArgs args)
 	{
+		if (args.ParsedStatus != MediaParsedStatus.Done) {
+			return;
+		}
+
+		// we're just going to assume the player's current media is the one that
+		// was parsed... if that's incorrect, we'll get called again Real Soon Now
+		// for the new media and fix our mistakes
+		using var media = _player.Media;
+
+		var song = media == null ? null : new SongMetadata(
+			media.Meta(MetadataType.Artist),
+			media.Meta(MetadataType.Album),
+			media.Meta(MetadataType.Title),
+			int.TryParse(media.Meta(MetadataType.TrackNumber), out var tn) ? tn : -1,
+			int.TryParse(media.Meta(MetadataType.TrackTotal), out var tt) ? tt : -1,
+			media.Meta(MetadataType.ArtworkURL),
+			TimeSpan.FromMilliseconds(media.Duration)
+		);
+
 		lock (_stateLock) {
-			if (_currentMedia == null) {
-				_playerState = _playerState with {
-					Song = null,
-				};
+			_currentSong = song;
+		}
 
-				return;
-			}
+		_hub.Clients.All.UpdateMedia(song);
 
-			_playerState = _playerState with {
-				Song = new(
-					_currentMedia.Meta(MetadataType.Artist),
-					_currentMedia.Meta(MetadataType.Album),
-					_currentMedia.Meta(MetadataType.Title),
-					int.TryParse(_currentMedia.Meta(MetadataType.TrackNumber), out var tn) ? tn : -1,
-					int.TryParse(_currentMedia.Meta(MetadataType.TrackTotal), out var tt) ? tt : -1,
-					_currentMedia.Meta(MetadataType.ArtworkURL),
-					TimeSpan.FromMilliseconds(_currentMedia.Duration),
-					TimeSpan.Zero)
-			};
-
+		if (song != null) {
 			_logger.LogInformation("Current Song: {Artist} - {Title} from {Album} (Track {TrackNumber}/{TrackTotal}) - Duration: {Duration}",
-				_playerState.Song?.Artist,
-				_playerState.Song?.Title,
-				_playerState.Song?.Album,
-				_playerState.Song?.TrackNumber,
-				_playerState.Song?.TrackTotal,
-				_playerState.Song?.Duration);
+				song.Artist,
+				song.Title,
+				song.Album,
+				song.TrackNumber,
+				song.TrackTotal,
+				song.Duration);
 		}
 	}
 
 	private void UpdatePlayerState(State state)
 	{
+		var curPos = default(TimeSpan?);
+
 		lock (_stateLock) {
-			_playerState = _playerState with {
-				State = state,
-			};
+			_currentState = state;
+			curPos = _currentPosition;
 		}
+
+		_hub.Clients.All.UpdatePosition(state, curPos);
 	}
 
 	public static void DisplayOutputs()
@@ -319,12 +271,5 @@ internal class AudioPlayer : IDisposable
 		public required string Hash { get; init; }
 		public int? ShuffleSeed { get; init; }
 		public int CurrentIndex { get; set; } = -1;
-	}
-
-	public enum State
-	{
-		Stopped,
-		Paused,
-		Playing,
 	}
 }
