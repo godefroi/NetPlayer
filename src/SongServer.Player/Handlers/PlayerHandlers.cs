@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using SongServer.Services;
@@ -21,11 +22,28 @@ internal class PlayerHandlers
 		group.MapGet("", PlayerHandlers.GetState);
 	}
 
-	public static PlayerState Play([FromServices]AudioPlayer player, CancellationToken cancellationToken = default)
+	public static async Task<PlayerState> Play([FromServices]AudioPlayer player, CancellationToken cancellationToken = default)
 	{
+		var tcs = new TaskCompletionSource<bool>();
+
+		player.StateChanged += ChangeHandler;
+
 		player.Play();
 
-		return new PlayerState(State.Playing, null, 0, 0);//player.GetState();
+		await tcs.Task.WaitAsync(TimeSpan.FromMilliseconds(250), cancellationToken);
+
+		player.StateChanged -= ChangeHandler;
+
+		var (state, song, position) = player.GetState();
+
+		return new PlayerState(state, song, 0, 0);
+
+		void ChangeHandler(object? s, StateChangedEventArgs e)
+		{
+			if (e.ChangeType.HasFlag(StateChangedEventArgs.Change.State)) {
+				tcs.SetResult(true);
+			}
+		}
 	}
 
 	public static void Pause([FromServices]AudioPlayer player) => player.Pause();

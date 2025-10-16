@@ -3,8 +3,23 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace SongServer.Services;
 
+public class StateChangedEventArgs : EventArgs
+{
+	public required Change ChangeType { get; init; }
+
+	[Flags]
+	public enum Change
+	{
+		State,
+		Song,
+		Position
+	}
+}
+
 internal class AudioPlayer : IDisposable
 {
+	public event EventHandler<StateChangedEventArgs>? StateChanged;
+
 	private readonly LibVLC _vlc;
 	private readonly MediaPlayer _player;
 	private readonly Lock _stateLock = new();
@@ -191,6 +206,7 @@ internal class AudioPlayer : IDisposable
 
 		if (sendPos) {
 			_hub.Clients.All.UpdatePosition(curState, position);
+			StateChanged?.Invoke(this, new StateChangedEventArgs() { ChangeType = StateChangedEventArgs.Change.Position });
 		}
 	}
 
@@ -220,6 +236,7 @@ internal class AudioPlayer : IDisposable
 		}
 
 		_hub.Clients.All.UpdateMedia(song);
+		StateChanged?.Invoke(this, new StateChangedEventArgs() { ChangeType = StateChangedEventArgs.Change.Song });
 
 		if (song != null) {
 			_logger.LogInformation("Current Song: {Artist} - {Title} from {Album} (Track {TrackNumber}/{TrackTotal}) - Duration: {Duration}",
@@ -234,7 +251,7 @@ internal class AudioPlayer : IDisposable
 
 	private void UpdatePlayerState(State state)
 	{
-		var curPos = default(TimeSpan?);
+		TimeSpan? curPos;
 
 		lock (_stateLock) {
 			_currentState = state;
@@ -242,6 +259,7 @@ internal class AudioPlayer : IDisposable
 		}
 
 		_hub.Clients.All.UpdatePosition(state, curPos);
+		StateChanged?.Invoke(this, new StateChangedEventArgs() { ChangeType = StateChangedEventArgs.Change.State });
 	}
 
 	public static void DisplayOutputs()
