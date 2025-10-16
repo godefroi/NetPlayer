@@ -3,23 +3,8 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace SongServer.Services;
 
-public class StateChangedEventArgs : EventArgs
-{
-	public required Change ChangeType { get; init; }
-
-	[Flags]
-	public enum Change
-	{
-		State,
-		Song,
-		Position
-	}
-}
-
 internal class AudioPlayer : IDisposable
 {
-	public event EventHandler<StateChangedEventArgs>? StateChanged;
-
 	private readonly LibVLC _vlc;
 	private readonly MediaPlayer _player;
 	private readonly Lock _stateLock = new();
@@ -66,6 +51,8 @@ internal class AudioPlayer : IDisposable
 	}
 
 	~AudioPlayer() => Dispose(false);
+
+	public event EventHandler<StateChangedEventArgs>? StateChanged;
 
 	protected virtual void Dispose(bool disposing)
 	{
@@ -206,7 +193,11 @@ internal class AudioPlayer : IDisposable
 
 		if (sendPos) {
 			_hub.Clients.All.UpdatePosition(curState, position);
-			StateChanged?.Invoke(this, new StateChangedEventArgs() { ChangeType = StateChangedEventArgs.Change.Position });
+			StateChanged?.Invoke(this, new StateChangedEventArgs() {
+				State = curState,
+				Position = position,
+				Song = _currentSong
+			});
 		}
 	}
 
@@ -231,12 +222,21 @@ internal class AudioPlayer : IDisposable
 			TimeSpan.FromMilliseconds(media.Duration)
 		);
 
+		State curState;
+		TimeSpan curPos;
+
 		lock (_stateLock) {
 			_currentSong = song;
+			curState = _currentState;
+			curPos = _currentPosition;
 		}
 
 		_hub.Clients.All.UpdateMedia(song);
-		StateChanged?.Invoke(this, new StateChangedEventArgs() { ChangeType = StateChangedEventArgs.Change.Song });
+		StateChanged?.Invoke(this, new StateChangedEventArgs() {
+			Song = song,
+			State = curState,
+			Position = _currentPosition
+		});
 
 		if (song != null) {
 			_logger.LogInformation("Current Song: {Artist} - {Title} from {Album} (Track {TrackNumber}/{TrackTotal}) - Duration: {Duration}",
@@ -252,14 +252,20 @@ internal class AudioPlayer : IDisposable
 	private void UpdatePlayerState(State state)
 	{
 		TimeSpan? curPos;
+		SongMetadata? curSong;
 
 		lock (_stateLock) {
 			_currentState = state;
 			curPos = _currentPosition;
+			curSong = _currentSong;
 		}
 
 		_hub.Clients.All.UpdatePosition(state, curPos);
-		StateChanged?.Invoke(this, new StateChangedEventArgs() { ChangeType = StateChangedEventArgs.Change.State });
+		StateChanged?.Invoke(this, new StateChangedEventArgs() {
+			State    = state,
+			Position = curPos,
+			Song     = curSong
+		});
 	}
 
 	public static void DisplayOutputs()
