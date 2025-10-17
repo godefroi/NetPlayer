@@ -18,6 +18,8 @@ internal class Program
 		builder.Services.AddDbContextFactory<LibraryContext>();
 		builder.Services.AddHostedService<AudioPlayerService>();
 
+		builder.Services.AddHostedService<PlayerHubBroadcaster>();
+
 		builder.Services.AddCors();
 
 		builder.Services.AddSignalR();

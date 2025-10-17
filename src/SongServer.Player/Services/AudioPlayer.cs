@@ -1,5 +1,5 @@
 using LibVLCSharp.Shared;
-using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging;
 
 namespace SongServer.Services;
 
@@ -8,7 +8,6 @@ internal class AudioPlayer : IDisposable
 	private readonly LibVLC _vlc;
 	private readonly MediaPlayer _player;
 	private readonly Lock _stateLock = new();
-	private readonly IHubContext<PlayerHub, IPlayerHub> _hub;
 	private readonly ILogger _logger;
 	private readonly Queue<Uri> _queue = [];
 	private bool _disposed = false;
@@ -23,9 +22,8 @@ internal class AudioPlayer : IDisposable
 		Core.Initialize();
 	}
 
-	public AudioPlayer(IHubContext<PlayerHub, IPlayerHub> hub, ILogger<AudioPlayer> logger)
+	public AudioPlayer(ILogger<AudioPlayer> logger)
 	{
-		_hub    = hub;
 		_logger = logger;
 		_vlc    = new();
 		_player = new(_vlc) {
@@ -192,7 +190,6 @@ internal class AudioPlayer : IDisposable
 		}
 
 		if (sendPos) {
-			_hub.Clients.All.UpdatePosition(curState, position);
 			StateChanged?.Invoke(this, new StateChangedEventArgs() {
 				State = curState,
 				Position = position,
@@ -231,7 +228,6 @@ internal class AudioPlayer : IDisposable
 			curPos = _currentPosition;
 		}
 
-		_hub.Clients.All.UpdateMedia(song);
 		StateChanged?.Invoke(this, new StateChangedEventArgs() {
 			Song = song,
 			State = curState,
@@ -260,7 +256,6 @@ internal class AudioPlayer : IDisposable
 			curSong = _currentSong;
 		}
 
-		_hub.Clients.All.UpdatePosition(state, curPos);
 		StateChanged?.Invoke(this, new StateChangedEventArgs() {
 			State    = state,
 			Position = curPos,

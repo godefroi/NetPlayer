@@ -106,6 +106,9 @@ internal class PlayerHandlers
 					Encoding.UTF8.GetBytes("data: ", writer);
 					JsonSerializer.Serialize(jsonWriter, e, _sseSerializerOptions);
 					Encoding.UTF8.GetBytes("\n\n", writer);
+
+					await jsonWriter.FlushAsync();
+					await writer.FlushAsync();
 				} catch (OperationCanceledException) {
 					/* ignore */
 				} catch (Exception) {
