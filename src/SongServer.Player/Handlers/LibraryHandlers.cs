@@ -10,23 +10,23 @@ internal class LibraryHandlers
 	{
 		var group = builder.MapGroup("library/");
 
-		group.MapGet("/albums", LibraryHandlers.GetAllAlbumsAsync)
+		group.MapGet("/albums", GetAllAlbumsAsync)
 			.WithName("GetAllAlbums")
 			.WithSummary("Get all albums in the library");
 
-		group.MapGet("/album/{artist}/{album}", LibraryHandlers.GetAlbum)
+		group.MapGet("/album/{artist}/{album}", GetAlbum)
 			.WithName("GetAlbum")
 			.WithSummary("Gets an album from the library");
 
-		group.MapGet("/search", LibraryHandlers.SearchLibraryAsync)
+		group.MapGet("/search", SearchLibraryAsync)
 			.WithName("SearchLibrary")
 			.WithSummary("Search the library");
 
-		group.MapPost("/refresh", LibraryHandlers.RefreshAsync)
+		group.MapPost("/refresh", RefreshAsync)
 			.WithName("RefreshLibrary")
 			.WithSummary("Scan directories for music files");
 
-		group.MapGet("/stats", LibraryHandlers.GetLibraryStatsAsync)
+		group.MapGet("/stats", GetLibraryStatsAsync)
 			.WithName("GetLibraryStats")
 			.WithSummary("Get library statistics");
 	}

@@ -23,13 +23,13 @@ internal class PlayerHandlers
 	{
 		var group = builder.MapGroup("player/");
 
-		group.MapGet("play", PlayerHandlers.Play);
-		group.MapGet("pause", PlayerHandlers.Pause);
-		group.MapGet("stop", PlayerHandlers.Stop);
-		group.MapGet("advance", PlayerHandlers.Advance);
-		group.MapGet("enqueue", PlayerHandlers.Enqueue);
-		group.MapGet("", PlayerHandlers.GetState);
-		group.MapGet("state-stream", PlayerHandlers.GetStateStream);
+		group.MapGet("play", Play);
+		group.MapGet("pause", Pause);
+		group.MapGet("stop", Stop);
+		group.MapGet("advance", Advance);
+		group.MapGet("enqueue", Enqueue);
+		group.MapGet("", GetState);
+		group.MapGet("state-stream", GetStateStream);
 	}
 
 	public static async Task<PlayerState> Play([FromServices]AudioPlayer player, CancellationToken cancellationToken = default)
