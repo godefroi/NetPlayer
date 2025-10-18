@@ -8,6 +8,8 @@ public class LibraryContext : DbContext
 
 	public DbSet<Song> Songs { get; set; }
 
+	public DbSet<PlaylistFile> Playlist { get; set; }
+
 	protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
 	{
 		if (!optionsBuilder.IsConfigured) {
