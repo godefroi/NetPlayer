@@ -29,7 +29,7 @@ internal class PlaylistHandlers
 	{
 		try {
 			var songs = await context.Playlist
-				.Select(p => new Song(p.Song!))
+				.Select(p => new SongMetadata(p.Song!.Artist, p.Song!.Album, p.Song!.Title, p.Song!.TrackNumber, p.Song!.TrackTotal, null, p.Song!.Duration))
 				.ToListAsync();
 
 			return Results.Ok(songs);
@@ -38,7 +38,7 @@ internal class PlaylistHandlers
 		}
 	}
 
-	public static async Task<IResult> AddToPlaylist([FromBody]Song request, LibraryContext context)
+	public static async Task<IResult> AddToPlaylist([FromBody]SongMetadata request, LibraryContext context)
 	{
 		if (request == null) {
 			return Results.BadRequest("Request body is required");
@@ -69,7 +69,7 @@ internal class PlaylistHandlers
 	public static async Task<IResult> RemoveFromPlaylist([FromQuery]string artist, [FromQuery]string title, LibraryContext context)
 	{
 		try {
-			var request = new Song(artist, string.Empty, title, null, null, TimeSpan.Zero);
+			var request = new SongMetadata(artist, string.Empty, title, null, null, null, TimeSpan.Zero);
 			var (song, error) = await FindSongAsync(request, context);
 
 			if (error != null) {
@@ -91,7 +91,7 @@ internal class PlaylistHandlers
 		}
 	}
 
-	private static async Task<(Services.Library.Song? Song, IResult? Error)> FindSongAsync(Song request, LibraryContext context)
+	private static async Task<(Song? Song, IResult? Error)> FindSongAsync(SongMetadata request, LibraryContext context)
 	{
 		var query = context.Songs.AsQueryable();
 

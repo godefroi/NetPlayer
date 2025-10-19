@@ -45,7 +45,7 @@ internal class LibraryHandlers
 	{
 		try {
 			var songs = await libraryService.GetAlbum(artist, album);
-			return Results.Ok(songs.Select(s => new Song(s)));
+			return Results.Ok(songs.Select(s => new SongMetadata(s.Artist, s.Album, s.Title, s.TrackNumber, s.TrackTotal, null, s.Duration)));
 		} catch (Exception ex) {
 			return Results.Problem("Error retrieving songs by artist and album: " + ex.Message);
 		}
@@ -55,7 +55,7 @@ internal class LibraryHandlers
 	{
 		try {
 			var results = await libraryService.SearchLibraryAsync(query);
-			return Results.Ok(results.Select(s => new Song(s)));
+			return Results.Ok(results.Select(s => new SongMetadata(s.Artist, s.Album, s.Title, s.TrackNumber, s.TrackTotal, null, s.Duration)));
 		} catch (ArgumentException ex) {
 			return Results.BadRequest(ex.Message);
 		} catch (Exception ex) {
@@ -83,16 +83,4 @@ internal class LibraryHandlers
 			return Results.Problem("Error retrieving library stats: " + ex.Message);
 		}
 	}
-}
-
-internal record Song(string Artist, string Album, string Title, int? TrackNumber, int? TrackTotal, TimeSpan Duration)
-{
-	public Song(Services.Library.Song song) : this(
-		song.Artist,
-		song.Album,
-		song.Title,
-		song.TrackNumber,
-		song.TrackTotal,
-		song.Duration
-	) { }
 }

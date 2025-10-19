@@ -7,9 +7,9 @@ public record SongMetadata(
 
 	string? Title,
 
-	int TrackNumber,
+	int? TrackNumber,
 
-	int TrackTotal,
+	int? TrackTotal,
 
 	string? ArtworkUrl,
 
