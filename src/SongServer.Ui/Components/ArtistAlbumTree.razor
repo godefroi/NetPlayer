@@ -1,0 +1,104 @@
+@inject PlayerClient _player
+
+<div class="artist-album-tree" style="overflow-y: auto; max-height: 100%;">
+	@if (isLoadingArtists) {
+		<p>Loading artists...</p>
+	}
+	else if (!_albums.Any()) {
+		<p><em>No artists</em></p>
+	} else {
+		<ul class="list-unstyled">
+			@foreach (var (artist, state) in _albums.OrderBy(kvp => kvp.Key)) {
+				<li>
+					<div class="d-flex align-items-center artist-line">
+						<button class="d-flex align-items-center p-0 flex-grow-1 artist-button" @onclick="() => ToggleArtist(artist)">
+							<span class="me-2">@(state.IsExpanded ? "▾" : "▸")</span>
+							<span class="flex-grow-1">@artist</span>
+						</button>
+					</div>
+
+					@if (state.IsExpanded) {
+						<div class="ms-3">
+							@if (!state.Albums.Any()) {
+								<div><em>No albums</em></div>
+							} else {
+								<ul>
+									@foreach (var alb in state.Albums) {
+										<li>
+											<button class="p-0 album-button" @onclick="() => OnAlbumClicked(artist, alb)">@alb</button>
+										</li>
+									}
+								</ul>
+							}
+						</div>
+					}
+				</li>
+			}
+		</ul>
+	}
+</div>
+
+<style>
+.artist-album-tree .artist-button, .artist-album-tree .album-button {
+    text-decoration: none;
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+}
+
+.artist-album-tree > ul > li {
+    margin-bottom: 0.5rem;
+}
+
+.artist-album-tree .ms-3 ul li {
+    margin-bottom: 0.25rem;
+}
+
+.artist-album-tree .artist-line {
+    background-color: lightgray;
+}
+</style>
+
+@code {
+	private Dictionary<string, ArtistState> _albums = [];
+	private bool isLoadingArtists;
+
+	[Parameter]
+	public EventCallback<AlbumInfo> OnAlbumSelected { get; set; }
+
+	protected override async Task OnInitializedAsync()
+	{
+		isLoadingArtists = true;
+		StateHasChanged();
+
+		try {
+			_albums = (await _player.GetAllAlbumsAsync())
+				.GroupBy(ai => ai.Artist, StringComparer.OrdinalIgnoreCase)
+				.ToDictionary(g => g.Key, g => new ArtistState(g.Select(ai => ai.Album).Order().ToList()), StringComparer.OrdinalIgnoreCase);
+		} finally {
+			isLoadingArtists = false;
+			StateHasChanged();
+		}
+	}
+
+	private void ToggleArtist(string artist)
+	{
+		var st = _albums[artist];
+		st.IsExpanded = !st.IsExpanded;
+		StateHasChanged();
+	}
+
+	private async Task OnAlbumClicked(string artist, string album)
+	{
+		if (OnAlbumSelected.HasDelegate) {
+			await OnAlbumSelected.InvokeAsync(new AlbumInfo(artist, album));
+		}
+	}
+
+	private class ArtistState(List<string> albums)
+	{
+		public bool IsExpanded { get; set; } = false;
+		public List<string> Albums { get; set; } = albums;
+	}
+}

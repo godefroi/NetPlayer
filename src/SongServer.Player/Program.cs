@@ -28,6 +28,7 @@ internal class Program
 
 		PlayerHandlers.Map(app);
 		LibraryHandlers.Map(app);
+		PlaylistHandlers.Map(app);
 
 		app.MapHub<PlayerHub>("/player/hub");
 

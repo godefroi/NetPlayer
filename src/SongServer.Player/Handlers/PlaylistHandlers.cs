@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SongServer.Services.Library;
@@ -48,7 +49,7 @@ internal class PlaylistHandlers
 			var (song, error) = await FindSongAsync(request, context);
 
 			if (error != null) {
-				return error;
+				return TypedResults.Problem(error);
 			}
 
 			var existing = await context.Playlist.FindAsync(song!.SourceId, song.RelativePath);
@@ -66,32 +67,32 @@ internal class PlaylistHandlers
 		}
 	}
 
-	public static async Task<IResult> RemoveFromPlaylist([FromQuery]string artist, [FromQuery]string title, LibraryContext context)
+	public static async Task<Results<Ok<OperationResult>, BadRequest<ProblemDetails>, NotFound<ProblemDetails>, ProblemHttpResult>> RemoveFromPlaylist([FromQuery]string artist, [FromQuery]string title, LibraryContext context)
 	{
 		try {
 			var request = new SongMetadata(artist, string.Empty, title, null, null, null, TimeSpan.Zero);
 			var (song, error) = await FindSongAsync(request, context);
 
 			if (error != null) {
-				return error;
+				return TypedResults.BadRequest(error);
 			}
 
 			var entry = await context.Playlist.FindAsync(song!.SourceId, song.RelativePath);
 
 			if (entry == null) {
-				return Results.NotFound(new { message = "Playlist entry not found for the specified song" });
+				return TypedResults.NotFound<ProblemDetails>(new() {  Title = "Playlist entry not found for the specified song" });
 			}
 
 			context.Playlist.Remove(entry);
 			await context.SaveChangesAsync();
 
-			return Results.Ok(new { message = "Removed from playlist" });
+			return TypedResults.Ok(new OperationResult("Removed from playlist"));
 		} catch (Exception ex) {
-			return Results.Problem("Error removing from playlist: " + ex.Message);
+			return TypedResults.Problem("Error removing from playlist: " + ex.Message);
 		}
 	}
 
-	private static async Task<(Song? Song, IResult? Error)> FindSongAsync(SongMetadata request, LibraryContext context)
+	private static async Task<(Song? Song, ProblemDetails? Error)> FindSongAsync(SongMetadata request, LibraryContext context)
 	{
 		var query = context.Songs.AsQueryable();
 
@@ -110,12 +111,12 @@ internal class PlaylistHandlers
 		var matches = await query.ToListAsync();
 
 		if (matches.Count == 0) {
-			return (null, TypedResults.Problem(new() { Status = 422, Title = "No songs found matching the specified criteria." }));
+			return (null, new ProblemDetails() { Status = 422, Title = "No songs found matching the specified criteria." });
 		}
 
 		// TODO: we might need to set up a source priority, because a song might exist in multiple sources
 		if (matches.Count > 1) {
-			return (null, TypedResults.Problem(new() { Status = 422, Title = "Multiple songs found matching the criteria. Please be more specific.", Extensions = { { "songCount", matches.Count } } }));
+			return (null, new ProblemDetails() { Status = 422, Title = "Multiple songs found matching the criteria. Please be more specific.", Extensions = { { "songCount", matches.Count } } });
 		}
 
 		return (matches[0], null);

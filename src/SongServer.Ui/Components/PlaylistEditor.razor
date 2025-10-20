@@ -1,0 +1,165 @@
+﻿@using SongServer
+@using SongServer.Services
+@using System.Linq
+@using System.Threading
+@using Microsoft.AspNetCore.Components.Web
+@inject PlayerClient _player
+@implements System.IDisposable
+
+<div class="playlist-editor container" style="">
+	<div class="row">
+		<div class="col-4" style="max-height: 90vh; display: flex; flex-direction: column;">
+			<h5>Albums</h5>
+			<div style="overflow-y: auto; flex: 1;">
+				<ArtistAlbumTree OnAlbumSelected="OnArtistAlbumSelected" />
+			</div>
+		</div>
+
+		<div class="col-8" style="max-height: 90vh; display: flex; flex-direction: column;">
+			<div class="justify-content-between align-items-center mb-2">
+				<div>
+					<h5 class="mb-0">@(_selectedAlbum != null ? $"{_selectedAlbum.Artist} — {_selectedAlbum.Album}" : "Album songs")</h5>
+				</div>
+			</div>
+
+			<div style="overflow-y: auto; flex: 1;">
+				@if (isLoadingSongs) {
+					<p>Loading songs...</p>
+				} else if (!albumSongs.Any()) {
+					<p><em>No songs to show</em></p>
+				} else {
+					<table class="table table-sm">
+						<thead>
+							<tr>
+								<th style="width:40px"></th>
+								<th style="width:90px">Track</th>
+								<th>Title</th>
+								<th style="width:80px">Duration</th>
+							</tr>
+						</thead>
+						<tbody>
+							@foreach (var s in albumSongs.OrderBy(s => s.TrackNumber)) {
+								<tr @key="KeyFor(s)" style="cursor:pointer" tabindex="0" @onclick="async () => await ToggleSongSelected(s)" @onkeydown="@(async (KeyboardEventArgs e) => { if (e.Key == "Enter" || e.Key == " " || e.Key == "Spacebar") await ToggleSongSelected(s); })">
+									<td style="width:40px" role="checkbox" aria-checked="@IsInPlaylist(s)">
+										<Blazicon Svg="@(IsInPlaylist(s) ? MdiIcon.CheckboxMarkedOutline : MdiIcon.CheckboxBlankOutline)"></Blazicon>
+									</td>
+									<td>@(s.TrackNumber?.ToString() ?? "")</td>
+									<td>@(s.Title ?? "(unknown)")</td>
+									<td>@(s.Duration.ToString(@"m\:ss"))</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			</div>
+
+			@if (!string.IsNullOrEmpty(lastMessage)) {
+				<div class="alert alert-info py-1 fade @( _lastMessageVisible ? "show" : "")">@lastMessage</div>
+			}
+		</div>
+	</div>
+</div>
+
+@code {
+	private AlbumInfo? _selectedAlbum = null;
+	private List<SongMetadata> albumSongs = new();
+	private HashSet<string> playlistKeys = new(StringComparer.OrdinalIgnoreCase);
+	private bool isLoadingSongs;
+	private string? lastMessage;
+	private bool _lastMessageVisible;
+	private CancellationTokenSource? _lastMessageCts;
+
+	// Show a message and automatically fade+clear it after ~5s. Cancels any previous pending dismissals.
+	private void ShowMessage(string msg)
+	{
+		// cancel any existing dismissal
+		try { _lastMessageCts?.Cancel(); } catch { }
+		try { _lastMessageCts?.Dispose(); } catch { }
+
+		lastMessage = msg;
+		_lastMessageCts = new CancellationTokenSource();
+		_lastMessageVisible = true;
+		StateHasChanged();
+
+		_ = Task.Run(async () => {
+			try {
+				// show for 4.5s, then start fade (remove "show"), then clear after 0.5s to allow CSS transition
+				await Task.Delay(4500);
+				_lastMessageVisible = false;
+				await InvokeAsync(StateHasChanged);
+
+				await Task.Delay(500);
+				lastMessage = null;
+				await InvokeAsync(StateHasChanged);
+			} catch (TaskCanceledException) {
+				// ignore
+			}
+		}, _lastMessageCts.Token);
+	}
+
+	private async Task OnArtistAlbumSelected(AlbumInfo info)
+	{
+		if (info == null) {
+			return;
+		}
+
+		_selectedAlbum = info;
+
+		var pl = await _player.GetPlaylistAsync();
+		playlistKeys = new HashSet<string>((pl ?? Enumerable.Empty<SongMetadata>()).Select(s => KeyFor(s)), StringComparer.OrdinalIgnoreCase);
+
+		if (_selectedAlbum == null) {
+			albumSongs = new List<SongMetadata>();
+			return;
+		}
+
+		try {
+			isLoadingSongs = true;
+			albumSongs = (await _player.GetAlbumAsync(_selectedAlbum.Artist, _selectedAlbum.Album)).ToList();
+		} catch (Exception ex) {
+			ShowMessage("Failed to load songs: " + ex.Message);
+			albumSongs = new List<SongMetadata>();
+		} finally {
+			isLoadingSongs = false;
+			StateHasChanged();
+		}
+	}
+
+	private string KeyFor(SongMetadata s) => $"{s.Artist ?? string.Empty}|{s.Title ?? string.Empty}";
+
+	private bool IsInPlaylist(SongMetadata s) => playlistKeys.Contains(KeyFor(s));
+
+	private async Task ToggleSongSelected(SongMetadata song)
+	{
+		var key = KeyFor(song);
+
+		try {
+			if (!playlistKeys.Contains(key)) {
+				var op = await _player.AddToPlaylistAsync(song);
+				playlistKeys.Add(key);
+				ShowMessage(op?.Message ?? "Added to playlist");
+			} else if (string.IsNullOrEmpty(song.Artist) || string.IsNullOrEmpty(song.Title)) {
+				ShowMessage("Cannot remove item with missing artist or title");
+			} else {
+				var (result, err) = await _player.RemoveFromPlaylistAsync(song.Artist, song.Title);
+
+				if (err != null) {
+					ShowMessage(err.Title);
+				} else {
+					playlistKeys.Remove(key);
+					ShowMessage(result?.Message ?? "Removed from playlist");
+				}
+			}
+		} catch (Exception ex) {
+			ShowMessage("Request failed: " + ex.Message);
+		}
+	}
+
+	// ...existing code...
+
+	public void Dispose()
+	{
+		try { _lastMessageCts?.Cancel(); } catch { }
+		try { _lastMessageCts?.Dispose(); } catch { }
+	}
+}
