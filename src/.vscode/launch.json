@@ -5,10 +5,10 @@
 	"version": "0.2.0",
 	"configurations": [
 		{
-			"name": "C#: Server Debug",
+			"name": "C#: Player Debug",
 			"type": "dotnet",
 			"request": "launch",
-			"projectPath": "${workspaceFolder}/SongServer.Server/SongServer.Server.csproj"
+			"projectPath": "${workspaceFolder}/SongServer.Player/SongServer.Player.csproj"
 		},
 		{
 			"name": "C#: Ui Debug",
@@ -19,9 +19,9 @@
 	],
 	"compounds": [
 		{
-			"name": "Song Server+UI",
+			"name": "Song Player+UI",
 			"configurations": [
-				"C#: Server Debug",
+				"C#: Player Debug",
 				"C#: Ui Debug"
 			]
 		}

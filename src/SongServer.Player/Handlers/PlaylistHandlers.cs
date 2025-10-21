@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using SongServer.Services.Library;
 
 namespace SongServer.Handlers;
@@ -29,9 +30,10 @@ internal class PlaylistHandlers
 	public static async Task<IResult> GetPlaylist(LibraryContext context)
 	{
 		try {
-			var songs = await context.Playlist
-				.Select(p => new SongMetadata(p.Song!.Artist, p.Song!.Album, p.Song!.Title, p.Song!.TrackNumber, p.Song!.TrackTotal, null, p.Song!.Duration))
-				.ToListAsync();
+			var songs = (await context.Playlist
+				.ToListAsync())
+				.Select(p => new SongMetadata([.. p.Song!.Artists.Select(a => a.Name)], p.Song!.Album.Title, p.Song!.Title, p.Song!.TrackNumber, p.Song!.TrackTotal, null, p.Song!.Duration))
+				.ToList();
 
 			return Results.Ok(songs);
 		} catch (Exception ex) {
@@ -70,7 +72,7 @@ internal class PlaylistHandlers
 	public static async Task<Results<Ok<OperationResult>, BadRequest<ProblemDetails>, NotFound<ProblemDetails>, ProblemHttpResult>> RemoveFromPlaylist([FromQuery]string artist, [FromQuery]string title, LibraryContext context)
 	{
 		try {
-			var request = new SongMetadata(artist, string.Empty, title, null, null, null, TimeSpan.Zero);
+			var request = new SongMetadata([artist], string.Empty, title, null, null, null, TimeSpan.Zero);
 			var (song, error) = await FindSongAsync(request, context);
 
 			if (error != null) {
@@ -96,12 +98,13 @@ internal class PlaylistHandlers
 	{
 		var query = context.Songs.AsQueryable();
 
-		if (!string.IsNullOrWhiteSpace(request.Artist)) {
-			query = query.Where(s => s.Artist == request.Artist);
+		// TODO: this only looks for the first artist if we were provided with more than one... that could be a problem
+		if (request.Artists != null && request.Artists.Count > 0 && !string.IsNullOrWhiteSpace(request.Artists[0])) {
+			query = query.Where(s => s.Artists.Any(a => EF.Functions.Like(a.Name, $"%{request.Artists[0]}%")));
 		}
 
 		if (!string.IsNullOrWhiteSpace(request.Album)) {
-			query = query.Where(s => s.Album == request.Album);
+			query = query.Where(s => s.Album.Title == request.Album);
 		}
 
 		if (!string.IsNullOrWhiteSpace(request.Title)) {

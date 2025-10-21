@@ -1,5 +1,4 @@
 using LibVLCSharp.Shared;
-using Microsoft.Extensions.Logging;
 
 namespace SongServer.Services;
 
@@ -210,7 +209,7 @@ internal class AudioPlayer : IDisposable
 		using var media = _player.Media;
 
 		var song = media == null ? null : new SongMetadata(
-			media.Meta(MetadataType.Artist),
+			[media.Meta(MetadataType.Artist) ?? string.Empty],
 			media.Meta(MetadataType.Album),
 			media.Meta(MetadataType.Title),
 			int.TryParse(media.Meta(MetadataType.TrackNumber), out var tn) ? tn : -1,
@@ -236,7 +235,7 @@ internal class AudioPlayer : IDisposable
 
 		if (song != null) {
 			_logger.LogInformation("Current Song: {Artist} - {Title} from {Album} (Track {TrackNumber}/{TrackTotal}) - Duration: {Duration}",
-				song.Artist,
+				string.Join(", ", song.Artists ?? Enumerable.Empty<string>()),
 				song.Title,
 				song.Album,
 				song.TrackNumber,

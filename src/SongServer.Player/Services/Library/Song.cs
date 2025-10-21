@@ -3,8 +3,6 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace SongServer.Services.Library;
 
-// TODO: probably artist and album should be normalized out... albums have multiple artists
-
 public class Song
 {
 	public string SourcePath { get { return Source.Path; } }
@@ -12,10 +10,6 @@ public class Song
 	public required string RelativePath { get; set; }
 
 	public Uri Url { get { return ConvertToUri(Path.Combine(SourcePath, RelativePath)); } }
-
-	public required string Artist { get; set; }
-
-	public required string Album { get; set; }
 
 	public required string Title { get; set; }
 
@@ -34,6 +28,12 @@ public class Song
 	public long SourceId { get; set; }
 
 	public Source Source { get; set; } = null!;
+
+	public long AlbumId { get; set; }
+
+	public Album Album { get; set; } = null!;
+
+	public IEnumerable<Artist> Artists => Album?.Artists ?? Enumerable.Empty<Artist>();
 
 	public static Uri ConvertToUri(string path)
 	{
@@ -70,6 +70,10 @@ internal class SongConfiguration : IEntityTypeConfiguration<Song>
 
 		builder.HasKey(s => new { s.SourceId, s.RelativePath });
 
+		builder
+			.Ignore(s => s.Artists)
+			.Ignore(s => s.Url);
+
 		builder.HasOne(s => s.Source)
 			.WithMany()
 			.HasForeignKey(s => s.SourceId)
@@ -87,13 +91,14 @@ internal class SongConfiguration : IEntityTypeConfiguration<Song>
 			.HasColumnName("hash")
 			.IsRequired();
 
-		builder.Property(s => s.Artist)
-			.HasColumnName("artist")
+		builder.Property(s => s.AlbumId)
+			.HasColumnName("album_id")
 			.IsRequired();
 
-		builder.Property(s => s.Album)
-			.HasColumnName("album")
-			.IsRequired();
+		builder.HasOne(s => s.Album)
+			.WithMany(a => a.Songs)
+			.HasForeignKey(s => s.AlbumId)
+			.HasPrincipalKey(a => a.Id);
 
 		builder.Property(s => s.Title)
 			.HasColumnName("title")
@@ -118,6 +123,9 @@ internal class SongConfiguration : IEntityTypeConfiguration<Song>
 			.IsRequired();
 
 		builder.Navigation(s => s.Source)
+			.AutoInclude();
+
+		builder.Navigation(s => s.Album)
 			.AutoInclude();
 
 		// we could index things, but why?

@@ -11,7 +11,7 @@
 			<h4>Now Playing</h4>
 			<div class="track-info">
 				<div class="track-title">@_songMetadata.Title</div>
-				<div class="track-artist">@_songMetadata.Artist</div>
+				<div class="track-artist">@(_songMetadata.Artists == null ? "Unknown Artist" : string.Join(", ", _songMetadata.Artists))</div>
 				<div class="track-album">@_songMetadata.Album</div>
 				@if (_songMetadata.TrackTotal > 0)
 				{

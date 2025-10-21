@@ -3,6 +3,7 @@
 @using System.Linq
 @using System.Threading
 @using Microsoft.AspNetCore.Components.Web
+@using System.Diagnostics
 @inject PlayerClient _player
 @implements System.IDisposable
 
@@ -18,7 +19,7 @@
 		<div class="col-8" style="max-height: 90vh; display: flex; flex-direction: column;">
 			<div class="justify-content-between align-items-center mb-2">
 				<div>
-					<h5 class="mb-0">@(_selectedAlbum != null ? $"{_selectedAlbum.Artist} — {_selectedAlbum.Album}" : "Album songs")</h5>
+					<h5 class="mb-0">@(_selectedAlbum != null ? $"{_selectedAlbum.ArtistOrVarious()} — {_selectedAlbum.Album}" : "Album songs")</h5>
 				</div>
 			</div>
 
@@ -115,7 +116,7 @@
 
 		try {
 			isLoadingSongs = true;
-			albumSongs = (await _player.GetAlbumAsync(_selectedAlbum.Artist, _selectedAlbum.Album)).ToList();
+			albumSongs = (await _player.GetAlbumAsync(_selectedAlbum.Artists[0], _selectedAlbum.Album)).ToList();
 		} catch (Exception ex) {
 			ShowMessage("Failed to load songs: " + ex.Message);
 			albumSongs = new List<SongMetadata>();
@@ -125,7 +126,7 @@
 		}
 	}
 
-	private string KeyFor(SongMetadata s) => $"{s.Artist ?? string.Empty}|{s.Title ?? string.Empty}";
+	private string KeyFor(SongMetadata s) => $"{s.ArtistOrArtists() ?? string.Empty}|{s.Title ?? string.Empty}";
 
 	private bool IsInPlaylist(SongMetadata s) => playlistKeys.Contains(KeyFor(s));
 
@@ -138,10 +139,10 @@
 				var op = await _player.AddToPlaylistAsync(song);
 				playlistKeys.Add(key);
 				ShowMessage(op?.Message ?? "Added to playlist");
-			} else if (string.IsNullOrEmpty(song.Artist) || string.IsNullOrEmpty(song.Title)) {
+			} else if (song.Artists == null || string.IsNullOrEmpty(song.Artists[0]) || string.IsNullOrEmpty(song.Title)) {
 				ShowMessage("Cannot remove item with missing artist or title");
 			} else {
-				var (result, err) = await _player.RemoveFromPlaylistAsync(song.Artist, song.Title);
+				var (result, err) = await _player.RemoveFromPlaylistAsync(song.Artists[0], song.Title);
 
 				if (err != null) {
 					ShowMessage(err.Title);

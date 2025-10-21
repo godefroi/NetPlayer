@@ -45,6 +45,7 @@ internal class Program
 		// 		@"\\vmhost.local\media\Audio\Singles",
 		// 		@"\\vmhost.local\media\Audio\Full CDs",
 		// 	]);
+		// 	return;
 		// }
 
 // 		using (var scope = app.Services.CreateScope()) {

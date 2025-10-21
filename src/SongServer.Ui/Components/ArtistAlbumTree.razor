@@ -1,3 +1,4 @@
+@using System.Diagnostics
 @inject PlayerClient _player
 
 <div class="artist-album-tree" style="overflow-y: auto; max-height: 100%;">
@@ -25,7 +26,7 @@
 								<ul>
 									@foreach (var alb in state.Albums) {
 										<li>
-											<button class="p-0 album-button" @onclick="() => OnAlbumClicked(artist, alb)">@alb</button>
+											<button class="p-0 album-button" @onclick="() => OnAlbumClicked(alb)">@alb.Album</button>
 										</li>
 									}
 								</ul>
@@ -72,10 +73,17 @@
 		isLoadingArtists = true;
 		StateHasChanged();
 
+		Func<List<string>, string> GetArtist = l => l.Count switch {
+			0 => "Unknown Artist",
+			1 => l[0],
+			>1 => "Various Artists",
+			_ => throw new UnreachableException(),
+		};
+
 		try {
 			_albums = (await _player.GetAllAlbumsAsync())
-				.GroupBy(ai => ai.Artist, StringComparer.OrdinalIgnoreCase)
-				.ToDictionary(g => g.Key, g => new ArtistState(g.Select(ai => ai.Album).Order().ToList()), StringComparer.OrdinalIgnoreCase);
+				.GroupBy(ai => GetArtist(ai.Artists), StringComparer.OrdinalIgnoreCase)
+				.ToDictionary(g => g.Key, g => new ArtistState(g.OrderBy(a => a.Album).ToList()), StringComparer.OrdinalIgnoreCase);
 		} finally {
 			isLoadingArtists = false;
 			StateHasChanged();
@@ -89,16 +97,16 @@
 		StateHasChanged();
 	}
 
-	private async Task OnAlbumClicked(string artist, string album)
+	private async Task OnAlbumClicked(AlbumInfo album)
 	{
 		if (OnAlbumSelected.HasDelegate) {
-			await OnAlbumSelected.InvokeAsync(new AlbumInfo(artist, album));
+			await OnAlbumSelected.InvokeAsync(album);
 		}
 	}
 
-	private class ArtistState(List<string> albums)
+	private class ArtistState(List<AlbumInfo> albums)
 	{
 		public bool IsExpanded { get; set; } = false;
-		public List<string> Albums { get; set; } = albums;
+		public List<AlbumInfo> Albums { get; set; } = albums;
 	}
 }

@@ -21,3 +21,6 @@ GET http://localhost:5000/library/album/Radiohead/Amnesiac
 
 ###
 GET http://localhost:5000/library/search?query=line
+
+###
+GET http://localhost:5000/playlist
