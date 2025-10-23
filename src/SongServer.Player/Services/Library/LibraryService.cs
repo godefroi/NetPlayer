@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 
@@ -6,7 +7,7 @@ namespace SongServer.Services.Library;
 
 public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, ILogger<LibraryService>? logger = null) : IDisposable
 {
-	private readonly static FrozenSet<string> _extensions = [".mp3", ".opus", ".flac"];
+	private readonly static FrozenSet<string> _extensions = [".mp3", ".opus", ".flac", ".m4a"];
 
 	private readonly IDbContextFactory<LibraryContext> _contextFactory = contextFactory;
 	private readonly SemaphoreSlim _scanSemaphore = new(1, 1);
@@ -56,9 +57,12 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 	{
 		var updated   = 0;
 		var removed   = 0;
+		var remAlbum  = 0;
+		var remArtist = 0;
 		var processed = 0;
 		var errors    = 0;
 		var seen      = new HashSet<Uri>();
+		var start     = Stopwatch.GetTimestamp();
 
 		List<string> libraryPaths;
 
@@ -73,7 +77,8 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 
 			// scan the source paths
 			foreach (var p in libraryPaths) {
-				var (tp, te) = await ScanDirectoryAsync(p, seen);
+				//var (tp, te) = await ScanDirectoryAsync(p, seen);
+				var (tp, te) = await ProcessSourceDirectory(p, seen);
 				processed += tp;
 				errors += te;
 			}
@@ -89,11 +94,30 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 				// save the delete changes
 				removed = await context.SaveChangesAsync();
 			}
+
+			// remove any albums that no longer exist
+			using (var context = await _contextFactory.CreateDbContextAsync()) {
+				context.Albums.RemoveRange(context.Albums.Where(a => a.Songs.Count() == 0));
+				remAlbum = await context.SaveChangesAsync();
+				//remAlbum = await context.Albums.Where(a => a.Songs.Count() == 0).ExecuteDeleteAsync();
+			}
+
+			// remove any artists for which we have no more albums
+			using (var context = await _contextFactory.CreateDbContextAsync()) {
+				context.Artists.RemoveRange(context.Artists.Where(a => a.Albums.Count() == 0));
+				remArtist = await context.SaveChangesAsync();
+				//remArtist = await context.Artists.Where(a => a.Albums.Count() == 0).ExecuteDeleteAsync();
+			}
+
+			// remove any playlist items that no longer exist in the library
+			using (var context = await _contextFactory.CreateDbContextAsync()) {
+				
+			}
 		} finally {
 			_scanSemaphore.Release();
 		}
 
-		_logger?.LogInformation("Refresh complete; {processed} processed, {updated} added/updated, {removed} removed.", seen.Count, updated, removed);
+		_logger?.LogInformation("Refresh complete in {dur}; {processed} processed, {updated} added/updated, {removed} removed. {remAlbum} albums and {remArtist} artists pruned.", Stopwatch.GetElapsedTime(start), seen.Count, updated, removed, remAlbum, remArtist);
 	}
 
 	public async Task<(int Processed, int Errors)> ScanDirectoryAsync(string sourcePath, HashSet<Uri> foundFiles)
@@ -118,13 +142,132 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 				changes += await ProcessFileAsync(sourcePath, file, foundFiles);
 			} catch (Exception ex) {
 				errors++;
-				_logger?.LogError(ex, "Error processing file: {FilePath}", file);
+				_logger?.LogError(ex, "Error processing file: {filePath}", file);
 			}
 		}
 
 		_logger?.LogInformation("Scan complete for {path} ({processed} processed, {errors} errors, {changes} changes saved)", sourcePath, total, errors, changes);
 
 		return (total, errors);
+	}
+
+	private async Task<(int Processed, int Errors)> ProcessSourceDirectory(string sourcePath, HashSet<Uri> foundFiles)
+	{
+		(string FileName, string Hash, TagLib.Tag Tag, TimeSpan Duration)[]? files;
+
+		_logger?.LogInformation("Starting scan of {sourcePath}", sourcePath);
+
+		var changes     = 0;
+		var errors      = 0;
+		var total       = 0;
+		var directories = Directory
+			.EnumerateFiles(sourcePath, "*.*", SearchOption.AllDirectories)
+			.Where(file => _extensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
+			.GroupBy(f => Path.GetDirectoryName(f));
+
+		foreach (var dir in directories) {
+			// read the files in parallel
+			try {
+				files = await Task.WhenAll(dir.Select(f => ReadFile(sourcePath, f)));
+			} catch (AggregateException ae) {
+				foreach (var e in ae.InnerExceptions) {
+					_logger?.LogError(e, "Error occurred reading file");
+				}
+
+				errors += 1;
+				continue;
+			}
+
+			// then process them one-at-a-time
+			foreach (var (fileName, hash, tag, duration) in files) {
+				try {
+					changes += await ProcessFile(sourcePath, fileName, hash, tag, duration, foundFiles);
+				} catch (Exception e) {
+					errors++;
+					_logger?.LogError(e, "Error occurred while processing file {sourcePath}", fileName);
+				}
+			}
+
+			// count the files
+			total += files.Length;
+		}
+
+		_logger?.LogInformation("Scan complete for {path} ({processed} processed, {errors} errors, {changes} changes saved)", sourcePath, total, errors, changes);
+
+		return (changes, errors);
+	}
+
+	private async Task<int> ProcessFile(string sourcePath, string filePath, string fileHash, TagLib.Tag tag, TimeSpan duration, HashSet<Uri> foundFiles)
+	{
+		using var context = await _contextFactory.CreateDbContextAsync();
+
+		List<string> artists;
+
+		var fileInfo = new FileInfo(filePath);
+		var songPath = Path.GetRelativePath(sourcePath, Path.GetFullPath(filePath));
+		var source   = context.Sources.SingleOrDefault(s => s.Path == sourcePath) ?? throw new InvalidOperationException("The specified source path cannot be found in the database.");
+		var song     = context.Songs.Find(source.Id, songPath);
+
+		// add this file to the list of files we saw
+		foundFiles.Add(Song.ConvertToUri(Path.Combine(sourcePath, songPath)));
+
+		if (song != null && song.FileHash == fileHash) {
+			// the song hasn't changed, we're done here
+			return 0;
+		}
+
+		if (tag.AlbumArtists.Length > 0) {
+			artists = [.. tag.AlbumArtists.Select(a => CleanMetadata(a) ?? "Unknown Artist").Distinct()];
+		} else if (tag.Performers.Length > 0) {
+			artists = [.. tag.Performers.Select(a => CleanMetadata(a) ?? "Unknown Artist").Distinct()];
+		} else {
+			artists = ["Unknown Artist"];
+		}
+
+		// step one, we need the album
+		var album = await GetAlbum(context, CleanMetadata(tag.Album) ?? "Unknown Album");
+
+		// ensure the album has the artists we want
+		// first, add any that aren't there
+		foreach (var tagArtist in artists.Where(ta => !album.Artists.Any(a => a.Name == ta))) {
+			album.Artists.Add(await GetArtist(context, tagArtist));
+		}
+
+		// then, remove any extra
+		foreach (var albumArtist in album.Artists.Where(aa => !artists.Any(a => a == aa.Name)).ToList()) {
+			album.Artists.Remove(albumArtist);
+		}
+
+		if (song != null) {
+			// we have the song, but something changed
+			song.FileHash     = fileHash;
+			song.Album        = album;
+			song.Title        = CleanMetadata(tag.Title) ?? Path.GetFileNameWithoutExtension(songPath);
+			song.TrackNumber  = (int)tag.Track;
+			song.TrackTotal   = (int)tag.TrackCount;
+			song.Duration     = duration;
+			song.FileModified = fileInfo.LastWriteTime;
+			song.FileSize     = fileInfo.Length;
+		} else {
+			// new song... load 'er up
+			song = new Song {
+				SourceId     = source.Id,
+				RelativePath = songPath,
+				FileHash     = fileHash,
+				Album        = await GetAlbum(context, CleanMetadata(tag.Album) ?? "Unknown Album"),
+				Title        = CleanMetadata(tag.Title) ?? Path.GetFileNameWithoutExtension(songPath),
+				TrackNumber  = (int)tag.Track,
+				TrackTotal   = (int)tag.TrackCount,
+				Duration     = duration,
+				FileModified = fileInfo.LastWriteTime,
+				FileSize     = fileInfo.Length
+			};
+
+			context.Songs.Add(song);
+		}
+
+		// update (or add) the song to the database
+		return await context.SaveChangesAsync();
 	}
 
 	private async Task<int> ProcessFileAsync(string sourcePath, string filePath, HashSet<Uri> foundFiles)
@@ -202,9 +345,19 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 		return await context.SaveChangesAsync();
 	}
 
+	private static async Task<(string FileName, string Hash, TagLib.Tag Tag, TimeSpan Duration)> ReadFile(string sourcePath, string filePath)
+	{
+		var hashTask = CalculateFileHashAsync(filePath);
+
+		using var tagFile = TagLib.File.Create(filePath);
+
+		return (filePath, await hashTask, tagFile.Tag, tagFile.Properties.Duration);
+	}
+
 	private static async Task<Artist> GetArtist(LibraryContext context, string artist)
 	{
-		var entity = await context.Artists.SingleOrDefaultAsync(a => a.Name == artist);
+		var entity = context.Artists.Local.SingleOrDefault(a => a.Name == artist)
+			?? await context.Artists.SingleOrDefaultAsync(a => a.Name == artist);
 
 		if (entity == null) {
 			entity = new Artist() {
@@ -219,7 +372,8 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 
 	private static async Task<Album> GetAlbum(LibraryContext context, string album)
 	{
-		var entity = await context.Albums.SingleOrDefaultAsync(a => a.Title == album);
+		var entity = context.Albums.Local.SingleOrDefault(a => a.Title == album)
+			?? await context.Albums.SingleOrDefaultAsync(a => a.Title == album);
 
 		if (entity == null) {
 			entity = new Album() {

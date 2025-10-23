@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using SongServer.Services.Library;
 
 namespace SongServer.Handlers;
@@ -41,14 +40,14 @@ internal class PlaylistHandlers
 		}
 	}
 
-	public static async Task<IResult> AddToPlaylist([FromBody]SongMetadata request, LibraryContext context)
+	public static async Task<IResult> AddToPlaylist([FromBody]SongMetadata request, LibraryContext context, ILogger<PlaylistHandlers> logger)
 	{
 		if (request == null) {
 			return Results.BadRequest("Request body is required");
 		}
 
 		try {
-			var (song, error) = await FindSongAsync(request, context);
+			var (song, error) = await FindSongAsync(request, context, logger);
 
 			if (error != null) {
 				return TypedResults.Problem(error);
@@ -60,8 +59,10 @@ internal class PlaylistHandlers
 				return Results.Conflict(new { message = "Playlist entry already exists" });
 			}
 
-			context.Playlist.Add(new PlaylistFile { SourceId = song.SourceId, RelativePath = song.RelativePath });
+			var newFile = context.Playlist.Add(new PlaylistFile { SourceId = song.SourceId, RelativePath = song.RelativePath });
 			await context.SaveChangesAsync();
+
+			logger.LogInformation("Added file {relativePath} to playlist", newFile.Entity.RelativePath);
 
 			return Results.Ok(new { message = "Added to playlist" });
 		} catch (Exception ex) {
@@ -94,35 +95,40 @@ internal class PlaylistHandlers
 		}
 	}
 
-	private static async Task<(Song? Song, ProblemDetails? Error)> FindSongAsync(SongMetadata request, LibraryContext context)
+	private static async Task<(Song? Song, ProblemDetails? Error)> FindSongAsync(SongMetadata request, LibraryContext context, ILogger? logger = null)
 	{
-		var query = context.Songs.AsQueryable();
+		try {
+			var query = context.Songs.AsQueryable();
 
-		// TODO: this only looks for the first artist if we were provided with more than one... that could be a problem
-		if (request.Artists != null && request.Artists.Count > 0 && !string.IsNullOrWhiteSpace(request.Artists[0])) {
-			query = query.Where(s => s.Artists.Any(a => EF.Functions.Like(a.Name, $"%{request.Artists[0]}%")));
+			// TODO: this only looks for the first artist if we were provided with more than one... that could be a problem
+			if (request.Artists != null && request.Artists.Count > 0 && !string.IsNullOrWhiteSpace(request.Artists[0])) {
+				var artists = context.Artists.Where(a => request.Artists.Contains(a.Name));
+				query = query.Where(s => artists.Any(a => artists.Contains(a)));
+			}
+			if (!string.IsNullOrWhiteSpace(request.Album)) {
+				query = query.Where(s => s.Album.Title == request.Album);
+			}
+
+			if (!string.IsNullOrWhiteSpace(request.Title)) {
+				query = query.Where(s => s.Title == request.Title);
+			}
+
+			var matches = await query.ToListAsync();
+
+			if (matches.Count == 0) {
+				return (null, new ProblemDetails() { Status = 422, Title = "No songs found matching the specified criteria." });
+			}
+
+			// TODO: we might need to set up a source priority, because a song might exist in multiple sources
+			if (matches.Count > 1) {
+				return (null, new ProblemDetails() { Status = 422, Title = "Multiple songs found matching the criteria. Please be more specific.", Extensions = { { "songCount", matches.Count } } });
+			}
+
+			return (matches[0], null);
+		} catch (Exception e) {
+			logger?.LogError(e, "An error occurred while searching the library");
+			return (null, new ProblemDetails() { Status = 500, Title = e.Message });
 		}
-
-		if (!string.IsNullOrWhiteSpace(request.Album)) {
-			query = query.Where(s => s.Album.Title == request.Album);
-		}
-
-		if (!string.IsNullOrWhiteSpace(request.Title)) {
-			query = query.Where(s => s.Title == request.Title);
-		}
-
-		var matches = await query.ToListAsync();
-
-		if (matches.Count == 0) {
-			return (null, new ProblemDetails() { Status = 422, Title = "No songs found matching the specified criteria." });
-		}
-
-		// TODO: we might need to set up a source priority, because a song might exist in multiple sources
-		if (matches.Count > 1) {
-			return (null, new ProblemDetails() { Status = 422, Title = "Multiple songs found matching the criteria. Please be more specific.", Extensions = { { "songCount", matches.Count } } });
-		}
-
-		return (matches[0], null);
 	}
 
 	internal record SongRequest(string? Artist, string? Album, string? Title);

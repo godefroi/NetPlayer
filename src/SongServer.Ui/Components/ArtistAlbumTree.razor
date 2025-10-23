@@ -11,10 +11,10 @@
 		<ul class="list-unstyled">
 			@foreach (var (artist, state) in _albums.OrderBy(kvp => kvp.Key)) {
 				<li>
-					<div class="d-flex align-items-center artist-line">
-						<button class="d-flex align-items-center p-0 flex-grow-1 artist-button" @onclick="() => ToggleArtist(artist)">
+					<div class="d-flex artist-line">
+						<button class="d-flex p-0 flex-grow-1 artist-button" @onclick="() => ToggleArtist(artist)">
 							<span class="me-2">@(state.IsExpanded ? "▾" : "▸")</span>
-							<span class="flex-grow-1">@artist</span>
+							<span class="flex-grow-1 text-start">@artist</span>
 						</button>
 					</div>
 

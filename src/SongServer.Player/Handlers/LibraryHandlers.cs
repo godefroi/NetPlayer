@@ -66,11 +66,11 @@ internal class LibraryHandlers
 		}
 	}
 
-	public static async Task<Results<Ok<OperationResult>, ProblemHttpResult>> RefreshAsync(LibraryService libraryService, ILogger<LibraryService> logger)
+	public static Results<Ok<OperationResult>, ProblemHttpResult> RefreshAsync(LibraryService libraryService, ILogger<LibraryService> logger)
 	{
 		try {
-			await libraryService.RefreshAsync();
-			return TypedResults.Ok(new OperationResult("Library scan completed successfully"));
+			_ = Task.Run(libraryService.RefreshAsync);
+			return TypedResults.Ok(new OperationResult("Library scan initiated successfully"));
 		} catch (Exception ex) {
 			logger.LogError(ex, "Error scanning library");
 			return TypedResults.Problem(new() { Title = "Error scanning library: " + ex.Message });

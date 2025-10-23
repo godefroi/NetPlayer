@@ -1,0 +1,21 @@
+﻿@page "/library"
+@using SongServer.Components
+@inject PlayerClient _player
+
+<PageTitle>Library</PageTitle>
+
+<button class="btn btn-primary" @onclick="RefreshLibrary">
+	<span>Refresh Library</span>
+</button>
+
+@code {
+	private async Task RefreshLibrary()
+	{
+		try {
+			await _player.RefreshAsync();
+		} catch (Exception ex) {
+			// Consider adding error handling/notification here
+			Console.Error.WriteLine($"Error refreshing library: {ex.Message}");
+		}
+	}
+}

@@ -57,20 +57,31 @@
 			@if (!string.IsNullOrEmpty(lastMessage)) {
 				<div class="alert alert-info py-1 fade @( _lastMessageVisible ? "show" : "")">@lastMessage</div>
 			}
+
+			<div>
+				@playlistKeys.Count total items in the playlist.
+			</div>
 		</div>
 	</div>
 </div>
 
 @code {
-	private AlbumInfo? _selectedAlbum = null;
-	private List<SongMetadata> albumSongs = new();
-	private HashSet<string> playlistKeys = new(StringComparer.OrdinalIgnoreCase);
-	private bool isLoadingSongs;
-	private string? lastMessage;
-	private bool _lastMessageVisible;
-	private CancellationTokenSource? _lastMessageCts;
+    private AlbumInfo? _selectedAlbum = null;
+    private List<SongMetadata> albumSongs = new();
+    private HashSet<string> playlistKeys = new(StringComparer.OrdinalIgnoreCase);
+    private bool isLoadingSongs;
+    private string? lastMessage;
+    private bool _lastMessageVisible;
+    private CancellationTokenSource? _lastMessageCts;
 
-	// Show a message and automatically fade+clear it after ~5s. Cancels any previous pending dismissals.
+	protected override async Task OnInitializedAsync()
+	{
+		playlistKeys = ((await _player.GetPlaylistAsync()) ?? Enumerable.Empty<SongMetadata>())
+			.Select(s => KeyFor(s))
+			.ToHashSet(StringComparer.OrdinalIgnoreCase);
+	}
+
+    // Show a message and automatically fade+clear it after ~5s. Cancels any previous pending dismissals.
 	private void ShowMessage(string msg)
 	{
 		// cancel any existing dismissal
@@ -105,9 +116,6 @@
 		}
 
 		_selectedAlbum = info;
-
-		var pl = await _player.GetPlaylistAsync();
-		playlistKeys = new HashSet<string>((pl ?? Enumerable.Empty<SongMetadata>()).Select(s => KeyFor(s)), StringComparer.OrdinalIgnoreCase);
 
 		if (_selectedAlbum == null) {
 			albumSongs = new List<SongMetadata>();
