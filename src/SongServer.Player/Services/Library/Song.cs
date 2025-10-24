@@ -15,7 +15,11 @@ public class Song
 
 	public int? TrackNumber { get; set; }
 
-	public int? TrackTotal { get; set; }
+	public int? TrackCount { get; set; }
+
+	public int? DiscNumber { get; set; }
+
+	public int? DiscCount { get; set; }
 
 	public TimeSpan Duration { get; set; }
 
@@ -29,11 +33,17 @@ public class Song
 
 	public Source Source { get; set; } = null!;
 
-	public long AlbumId { get; set; }
+	public string? Album { get; set; }
 
-	public Album Album { get; set; } = null!;
+	public string? AlbumSort { get; set; }
 
-	public IEnumerable<Artist> Artists => Album?.Artists ?? Enumerable.Empty<Artist>();
+	public List<string>? AlbumArtists { get; set; }
+
+	public List<string>? AlbumArtistsSort { get; set; }
+
+	public List<string>? Performers { get; set; }
+
+	public List<string>? PerformersSort { get; set; }
 
 	public static Uri ConvertToUri(string path)
 	{
@@ -71,7 +81,6 @@ internal class SongConfiguration : IEntityTypeConfiguration<Song>
 		builder.HasKey(s => new { s.SourceId, s.RelativePath });
 
 		builder
-			.Ignore(s => s.Artists)
 			.Ignore(s => s.Url);
 
 		builder.HasOne(s => s.Source)
@@ -91,15 +100,6 @@ internal class SongConfiguration : IEntityTypeConfiguration<Song>
 			.HasColumnName("hash")
 			.IsRequired();
 
-		builder.Property(s => s.AlbumId)
-			.HasColumnName("album_id")
-			.IsRequired();
-
-		builder.HasOne(s => s.Album)
-			.WithMany(a => a.Songs)
-			.HasForeignKey(s => s.AlbumId)
-			.HasPrincipalKey(a => a.Id);
-
 		builder.Property(s => s.Title)
 			.HasColumnName("title")
 			.IsRequired();
@@ -107,8 +107,14 @@ internal class SongConfiguration : IEntityTypeConfiguration<Song>
 		builder.Property(s => s.TrackNumber)
 			.HasColumnName("track_number");
 
-		builder.Property(s => s.TrackTotal)
+		builder.Property(s => s.TrackCount)
 			.HasColumnName("track_total");
+
+		builder.Property(s => s.DiscNumber)
+			.HasColumnName("disc_number");
+
+		builder.Property(s => s.DiscCount)
+			.HasColumnName("disc_total");
 
 		builder.Property(s => s.Duration)
 			.HasColumnName("duration")
@@ -125,8 +131,23 @@ internal class SongConfiguration : IEntityTypeConfiguration<Song>
 		builder.Navigation(s => s.Source)
 			.AutoInclude();
 
-		builder.Navigation(s => s.Album)
-			.AutoInclude();
+		builder.Property(s => s.Album)
+			.HasColumnName("album");
+
+		builder.Property(s => s.AlbumSort)
+			.HasColumnName("album_sort");
+
+		builder.Property(s => s.AlbumArtists)
+			.HasColumnName("album_artists");
+
+		builder.Property(s => s.AlbumArtistsSort)
+			.HasColumnName("album_artists_sort");
+
+		builder.Property(s => s.Performers)
+			.HasColumnName("performers");
+
+		builder.Property(s => s.PerformersSort)
+			.HasColumnName("performers_sort");
 
 		// we could index things, but why?
 	}

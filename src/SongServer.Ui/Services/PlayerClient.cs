@@ -20,9 +20,9 @@ public class PlayerClient(HttpClient httpClient)
 
 	public Task<PlayerState?> Advance() => _httpClient.GetFromJsonAsync<PlayerState>("player/advance");
 
-	public async Task<List<AlbumInfo>> GetAllAlbumsAsync(CancellationToken cancellationToken = default)
+	public async Task<IEnumerable<ArtistInfo>> GetArtistsAsync(CancellationToken cancellationToken = default)
 	{
-		var result = await _httpClient.GetFromJsonAsync<List<AlbumInfo>>("library/albums", cancellationToken).ConfigureAwait(false);
+		var result = await _httpClient.GetFromJsonAsync<IEnumerable<ArtistInfo>>("library/artists", cancellationToken).ConfigureAwait(false);
 		return result ?? [];
 	}
 

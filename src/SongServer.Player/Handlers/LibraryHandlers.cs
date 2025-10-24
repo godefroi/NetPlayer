@@ -11,8 +11,8 @@ internal class LibraryHandlers
 	{
 		var group = builder.MapGroup("library/");
 
-		group.MapGet("/albums", GetAllAlbumsAsync)
-			.WithName("GetAllAlbums")
+		group.MapGet("/artists", GetArtists)
+			.WithName("GetAllArtists")
 			.WithSummary("Get all albums in the library");
 
 		group.MapGet("/album/{artist}/{album}", GetAlbum)
@@ -32,13 +32,13 @@ internal class LibraryHandlers
 			.WithSummary("Get library statistics");
 	}
 
-	public static async Task<Results<Ok<IEnumerable<AlbumInfo>>, ProblemHttpResult>> GetAllAlbumsAsync(LibraryService libraryService)
+	public static async Task<Results<Ok<IEnumerable<ArtistInfo>>, ProblemHttpResult>> GetArtists(LibraryService libraryService)
 	{
 		try {
-			var albums = await libraryService.GetAlbums();
-			return TypedResults.Ok(albums.Select(t => new AlbumInfo([.. t.Artists.Select(a => a.Name)], t.Title)));
+			var artists = await libraryService.GetArtists();
+			return TypedResults.Ok(artists.Select(a => new ArtistInfo(a.Artist, a.Albums)));
 		} catch (Exception ex) {
-			return TypedResults.Problem(new() { Title = "Error retrieving albums by artist: " + ex.Message });
+			return TypedResults.Problem(new() { Title = "Error retrieving albums: " + ex.Message });
 		}
 	}
 
@@ -46,7 +46,7 @@ internal class LibraryHandlers
 	{
 		try {
 			var songs = await libraryService.GetAlbum(artist, album);
-			var payload = songs.Select(s => new SongMetadata([.. s.Artists.Select(a => a.Name)], s.Album.Title, s.Title, s.TrackNumber, s.TrackTotal, null, s.Duration));
+			var payload = songs.Select(s => new SongMetadata(s.AlbumArtists, s.Album, s.Title, s.TrackNumber, s.TrackCount, null, s.Duration));
 			return TypedResults.Ok(payload);
 		} catch (Exception ex) {
 			return TypedResults.Problem(new() { Title = "Error retrieving songs by artist and album: " + ex.Message });
@@ -56,8 +56,8 @@ internal class LibraryHandlers
 	public static async Task<Results<Ok<IEnumerable<SongMetadata>>, BadRequest<string>, ProblemHttpResult>> SearchLibraryAsync(string query, LibraryService libraryService)
 	{
 		try {
-			var results = await libraryService.SearchLibraryAsync(query);
-			var payload = results.Select(s => new SongMetadata([.. s.Artists.Select(a => a.Name)], s.Album.Title, s.Title, s.TrackNumber, s.TrackTotal, null, s.Duration));
+			var results = await libraryService.SearchLibrary(query);
+			var payload = results.Select(s => new SongMetadata(s.AlbumArtists, s.Album, s.Title, s.TrackNumber, s.TrackCount, null, s.Duration));
 			return TypedResults.Ok(payload);
 		} catch (ArgumentException ex) {
 			return TypedResults.BadRequest(ex.Message);

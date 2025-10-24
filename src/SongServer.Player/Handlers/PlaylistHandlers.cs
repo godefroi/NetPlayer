@@ -31,7 +31,7 @@ internal class PlaylistHandlers
 		try {
 			var songs = (await context.Playlist
 				.ToListAsync())
-				.Select(p => new SongMetadata([.. p.Song!.Artists.Select(a => a.Name)], p.Song!.Album.Title, p.Song!.Title, p.Song!.TrackNumber, p.Song!.TrackTotal, null, p.Song!.Duration))
+				.Select(p => new SongMetadata(p.Song!.AlbumArtists, p.Song!.Album, p.Song!.Title, p.Song!.TrackNumber, p.Song!.TrackCount, null, p.Song!.Duration))
 				.ToList();
 
 			return Results.Ok(songs);
@@ -100,13 +100,13 @@ internal class PlaylistHandlers
 		try {
 			var query = context.Songs.AsQueryable();
 
-			// TODO: this only looks for the first artist if we were provided with more than one... that could be a problem
+			// TODO: this isn't quite right... we need to decide whether we're doing artists or performers, and whether they're AND or OR
 			if (request.Artists != null && request.Artists.Count > 0 && !string.IsNullOrWhiteSpace(request.Artists[0])) {
-				var artists = context.Artists.Where(a => request.Artists.Contains(a.Name));
-				query = query.Where(s => artists.Any(a => artists.Contains(a)));
+				query = query.Where(s => s.AlbumArtists != null && s.AlbumArtists.Any(aa => request.Artists.Contains(aa)));
 			}
+
 			if (!string.IsNullOrWhiteSpace(request.Album)) {
-				query = query.Where(s => s.Album.Title == request.Album);
+				query = query.Where(s => s.Album == request.Album);
 			}
 
 			if (!string.IsNullOrWhiteSpace(request.Title)) {

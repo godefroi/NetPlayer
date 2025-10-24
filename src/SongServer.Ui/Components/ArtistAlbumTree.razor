@@ -73,17 +73,12 @@
 		isLoadingArtists = true;
 		StateHasChanged();
 
-		Func<List<string>, string> GetArtist = l => l.Count switch {
-			0 => "Unknown Artist",
-			1 => l[0],
-			>1 => "Various Artists",
-			_ => throw new UnreachableException(),
-		};
-
 		try {
-			_albums = (await _player.GetAllAlbumsAsync())
-				.GroupBy(ai => GetArtist(ai.Artists), StringComparer.OrdinalIgnoreCase)
-				.ToDictionary(g => g.Key, g => new ArtistState(g.OrderBy(a => a.Album).ToList()), StringComparer.OrdinalIgnoreCase);
+			_albums = (await _player.GetArtistsAsync())
+				.ToDictionary(
+					ai => ai.Artist, 
+					ai => new ArtistState(ai.Albums.Select(album => new AlbumInfo([ai.Artist], album)).ToList())
+				);
 		} finally {
 			isLoadingArtists = false;
 			StateHasChanged();

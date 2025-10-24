@@ -120,7 +120,7 @@ internal class PlayerHandlers
 	public static async Task<Results<ProblemHttpResult, Ok<PlayerState>>> Enqueue([FromServices]AudioPlayer player, [FromServices]LibraryService library, string? artist, string? album, string? title, CancellationToken cancellationToken = default)
 	{
 		// find the song in the library by whatever criteria we were provided
-		var songs = await library.FindSongsAsync(artist, album, title);
+		var songs = await library.SearchLibrary(artist, album, title);
 
 		// if multiple songs were found, return an error
 		if (songs.Count == 0) {
