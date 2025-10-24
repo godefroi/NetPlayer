@@ -94,7 +94,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 				(song.AlbumArtists != null && song.AlbumArtists.Any(a => a == artist)) ||
 				(song.Performers != null && song.Performers.Any(p => p == artist))
 			)
-			.Where(song => album == null || album == _noAlbum || song.Album == album)
+			.Where(song => ((album == null || album == _noAlbum) && song.Album == null) || song.Album == album)
 			.ToListAsync();
 	}
 
