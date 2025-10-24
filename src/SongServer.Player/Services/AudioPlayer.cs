@@ -39,6 +39,8 @@ internal class AudioPlayer : IDisposable
 			}, "VLC: {message}", e.Message);
 		};
 
+		_player.SetAudioOutput("alsa");
+
 		_player.EndReached += HandleSongEnd;
 		_player.Playing += HandlePlaying;
 		_player.Paused += HandlePaused;

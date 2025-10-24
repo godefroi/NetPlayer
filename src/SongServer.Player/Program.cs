@@ -16,8 +16,16 @@ internal class Program
 		builder.Services.AddSingleton<LibraryService>();
 		builder.Services.AddSingleton<JsonLibrary>();
 		builder.Services.AddDbContextFactory<LibraryContext>();
-		builder.Services.AddHostedService<AudioPlayerService>();
 
+		if (args.Length != 0) {
+			switch (args[0]) {
+				case "showoutput":
+					AudioPlayer.DisplayOutputs();
+					return;
+			}
+		}
+
+		builder.Services.AddHostedService<AudioPlayerService>();
 		builder.Services.AddHostedService<PlayerHubBroadcaster>();
 
 		builder.Services.AddCors();

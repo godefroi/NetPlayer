@@ -20,6 +20,9 @@ GET http://localhost:5000/library/artists
 GET http://localhost:5000/library/album/Radiohead/Amnesiac
 
 ###
+GET http://localhost:5000/library/album/U2/%5BNo%20Album%5D
+
+###
 GET http://localhost:5000/library/search?query=line
 
 ###

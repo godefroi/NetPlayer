@@ -85,6 +85,19 @@ public class Playlist
 		return new Playlist(entries, Convert.ToHexStringLower(hasher.GetCurrentHash()));
 	}
 
+	public static async Task<Playlist> Load(IEnumerable<Uri> entries)
+	{
+		using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+
+		var entryList = entries.ToList();
+
+		foreach (var e in entries) {
+			hasher.AppendData(MemoryMarshal.AsBytes(e.OriginalString.AsSpan()));
+		}
+
+		return new Playlist(entryList, Convert.ToHexStringLower(hasher.GetCurrentHash()));
+	}
+
 	private static async Task LoadList(string listPath, List<Uri> entries, HashSet<string> visitedFiles, IncrementalHash hasher)
 	{
 		if (!visitedFiles.Add(Path.GetFullPath(listPath))) {
