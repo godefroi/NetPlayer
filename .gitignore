@@ -3,6 +3,9 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+# local files
+music_library.db*
+
 # dotenv files
 .env
 
