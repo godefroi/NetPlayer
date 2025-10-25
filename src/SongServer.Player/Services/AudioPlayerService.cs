@@ -24,7 +24,7 @@ internal class AudioPlayerService(AudioPlayer player, IDbContextFactory<LibraryC
 		// 	ShuffleSeed = Random.Shared.Next(), // TODO: remove this
 		// };
 
-		using var context = await _contextFactory.CreateDbContextAsync();
+		using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
 		var playlist = Playlist.Load(context.Playlist.Where(s => s.Song != null).Select(s => s.Song!.Url));
 		var state    = new AudioPlayer.PlaylistState() {

@@ -39,7 +39,8 @@ internal class AudioPlayer : IDisposable
 			}, "VLC: {message}", e.Message);
 		};
 
-		_player.SetAudioOutput("alsa");
+		//_player.SetAudioOutput("alsa");
+		_player.SetOutputDevice("hw:CARD=Headphones,DEV=0", null);
 
 		_player.EndReached += HandleSongEnd;
 		_player.Playing += HandlePlaying;
