@@ -1,14 +1,15 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SongServer.Configuration;
 using SongServer.Services.Library;
 
 namespace SongServer.Services;
 
-internal class AudioPlayerService(AudioPlayer player, LibraryContext libraryContext, IOptions<PlayerOptions> options, ILogger<AudioPlayerService> logger) : IHostedService
+internal class AudioPlayerService(AudioPlayer player, IDbContextFactory<LibraryContext> contextFactory, IOptions<PlayerOptions> options, ILogger<AudioPlayerService> logger) : IHostedService
 {
 	private readonly AudioPlayer _player = player;
 	private readonly IOptions<PlayerOptions> _options = options;
-	private readonly LibraryContext _context = libraryContext;
+	private readonly IDbContextFactory<LibraryContext> _contextFactory = contextFactory;
 	private readonly ILogger _logger = logger;
 
 	public async Task StartAsync(CancellationToken cancellationToken)
@@ -23,7 +24,9 @@ internal class AudioPlayerService(AudioPlayer player, LibraryContext libraryCont
 		// 	ShuffleSeed = Random.Shared.Next(), // TODO: remove this
 		// };
 
-		var playlist = await Playlist.Load(_context.Playlist.Where(s => s.Song != null).Select(s => s.Song!.Url));
+		using var context = await _contextFactory.CreateDbContextAsync();
+
+		var playlist = await Playlist.Load(context.Playlist.Where(s => s.Song != null).Select(s => s.Song!.Url));
 		var state    = new AudioPlayer.PlaylistState() {
 			Path = "nowhere_in_particular",
 			Hash = playlist.Hash,
