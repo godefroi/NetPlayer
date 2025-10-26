@@ -12,7 +12,7 @@ internal class Program
 		var builder = WebApplication.CreateBuilder(args);
 
 		builder.Services.Configure<PlayerOptions>(builder.Configuration.GetSection(PlayerOptions.SectionName));
-		builder.Services.AddSingleton<AudioPlayer>();
+		builder.Services.AddSingleton<AudioPlayer, VlcAudioPlayer>();
 		builder.Services.AddSingleton<LibraryService>();
 		builder.Services.AddSingleton<JsonLibrary>();
 		builder.Services.AddDbContextFactory<LibraryContext>();
@@ -20,7 +20,7 @@ internal class Program
 		if (args.Length != 0) {
 			switch (args[0]) {
 				case "showoutput":
-					AudioPlayer.DisplayOutputs();
+					VlcAudioPlayer.DisplayOutputs();
 					return;
 			}
 		}
