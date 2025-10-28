@@ -9,11 +9,10 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 	private readonly ILogger _logger;
 	private readonly SemaphoreSlim _semaphore = new(1, 1);
 	private readonly LibraryService _library;
-	private readonly CancellationTokenSource _metadataToken = new();
+	private readonly CancellationTokenSource _statusToken = new();
+	private readonly Task _statusTask;
 	private int _stream = 0;
 	private TimeSpan _lastPos = TimeSpan.Zero;
-	private PlaybackState _lastState = (PlaybackState)(-1);
-	private Task _statusTask = Task.CompletedTask;
 	private bool _disposed = false;
 
 	public BassAudioPlayer(ILogger<BassAudioPlayer> logger, LibraryService library) : base(logger)
@@ -27,9 +26,9 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 				throw new InvalidOperationException($"Failed to initialize BASS: {Bass.LastError}");
 			}
 
-			Bass.Configure(ManagedBass.Configuration.GlobalStreamVolume, 4500);
+			Bass.Configure(ManagedBass.Configuration.GlobalStreamVolume, 1500);
 
-			_statusTask = MonitorPlayback();
+			_statusTask = MonitorStatus();
 
 			_logger.LogInformation("BASS initialized successfully");
 		} catch (Exception ex) {
@@ -57,6 +56,31 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 			return true;
 		} catch (Exception ex) {
 			_logger.LogError(ex, "Error pausing playback");
+			return false;
+		} finally {
+			_semaphore.Release();
+		}
+	}
+
+	protected override async Task<bool> Resume()
+	{
+		await _semaphore.WaitAsync();
+
+		try {
+			if (_stream == 0) {
+				_logger.LogWarning("No stream to resume");
+				return false;
+			}
+
+			if (!Bass.ChannelPlay(_stream)) {
+				_logger.LogError("Failed to resume: {error}", Bass.LastError);
+				return false;
+			}
+
+			OnPlayerStateChanged(State.Playing);
+			return true;
+		} catch (Exception ex) {
+			_logger.LogError(ex, "Error resuming playback");
 			return false;
 		} finally {
 			_semaphore.Release();
@@ -98,7 +122,7 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 
 			_logger.LogInformation("Loading file: {reference}", song);
 
-			var dbSong = await _library.GetSong(song) ?? throw new InvalidOperationException("The specified song does not exist.");
+			var dbSong   = await _library.GetSong(song) ?? throw new InvalidOperationException("The specified song does not exist.");
 			var songPath = Path.Combine(dbSong.SourcePath, dbSong.RelativePath);
 
 			// Create a BASS stream from the file path
@@ -123,11 +147,7 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 				return false;
 			}
 
-			// Start position monitoring
-			//_metadataToken = new CancellationTokenSource();
-			//_ = Task.Run(() => MonitorPlayback(_metadataToken.Token));
-
-			OnPlayerStateChanged(State.Playing);
+			OnPlayerStateChanged(State.Playing, new SongMetadata(dbSong.Performers, dbSong.Album, dbSong.Title, dbSong.TrackNumber, dbSong.TrackCount, "about:empty", dbSong.Duration));
 			return true;
 		} catch (Exception ex) {
 			_logger.LogError(ex, "Error playing file");
@@ -137,62 +157,10 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 		}
 	}
 
-	protected override async Task<bool> Resume()
-	{
-		await _semaphore.WaitAsync();
-
-		try {
-			if (_stream == 0) {
-				_logger.LogWarning("No stream to resume");
-				return false;
-			}
-
-			if (!Bass.ChannelPlay(_stream)) {
-				_logger.LogError("Failed to resume: {error}", Bass.LastError);
-				return false;
-			}
-
-			OnPlayerStateChanged(State.Playing);
-			return true;
-		} catch (Exception ex) {
-			_logger.LogError(ex, "Error resuming playback");
-			return false;
-		} finally {
-			_semaphore.Release();
-		}
-	}
-
-	private async Task LoadMetadata(string filePath)
+	private async Task MonitorStatus()
 	{
 		try {
-			var file = TagLib.File.Create(filePath);
-
-			var artists = file.Tag.Performers.Length > 0
-				? file.Tag.Performers.ToList()
-				: null;
-
-			var metadata = new SongMetadata(
-				Artists: artists,
-				Album: file.Tag.Album,
-				Title: file.Tag.Title,
-				TrackNumber: (int?)file.Tag.Track,
-				TrackTotal: (int?)file.Tag.TrackCount,
-				ArtworkUrl: null,
-				Duration: file.Properties.Duration
-			);
-
-			OnMediaMetadataAvailable(metadata);
-
-			await Task.CompletedTask;
-		} catch (Exception ex) {
-			_logger.LogError(ex, "Failed to load metadata from file: {file}", filePath);
-		}
-	}
-
-	private async Task MonitorPlayback()
-	{
-		try {
-			while (!_metadataToken.IsCancellationRequested) {
+			while (!_statusToken.IsCancellationRequested) {
 				_semaphore.Wait();
 
 				try {
@@ -208,16 +176,7 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 							}
 						}
 
-						var playbackState = Bass.ChannelIsActive(_stream);
-
-						if (playbackState != _lastState) {
-							_logger.LogInformation("State transitioned {old} -> {new}", _lastState, playbackState);
-							_lastState = playbackState;
-						}
-						// we probably don't have to track the last state; if we have a channel
-						// and we're stopped, then playback finished... we can track all other
-						// state changes in their respective methods
-						if (playbackState == PlaybackState.Stopped) {
+						if (Bass.ChannelIsActive(_stream) == PlaybackState.Stopped) {
 							// if we got here, then the song finished (if Stop() had been called,
 							// we wouldn't have a stream anymore)
 
@@ -238,7 +197,7 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 					_semaphore.Release();
 				}
 
-				await Task.Delay(250, _metadataToken.Token);
+				await Task.Delay(250, _statusToken.Token);
 			}
 		} catch (OperationCanceledException) {
 			// Expected when stopping
@@ -253,8 +212,9 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 			return;
 		}
 
-		_metadataToken?.Cancel();
-		_metadataToken?.Dispose();
+		_statusToken?.Cancel();
+		_statusTask.Wait();
+		_statusToken?.Dispose();
 
 		if (_stream != 0) {
 			Bass.ChannelStop(_stream);

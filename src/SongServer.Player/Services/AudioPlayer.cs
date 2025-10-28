@@ -9,6 +9,7 @@ internal abstract class AudioPlayer(ILogger logger)
 	private PlaylistState _state = PlaylistState.Empty;
 	private SongMetadata? _currentSong = null;
 	private TimeSpan _currentPosition = TimeSpan.FromSeconds(-1);
+	private TimeSpan _lastReportedPos = TimeSpan.FromSeconds(-1);
 	private State _currentState = State.Stopped;
 
 	public event EventHandler<StateChangedEventArgs>? StateChanged;
@@ -90,21 +91,48 @@ internal abstract class AudioPlayer(ILogger logger)
 		}
 	}
 
-	protected void OnPlayerStateChanged(State state)
+	protected void OnPlayerStateChanged(State state, SongMetadata? song = null)
 	{
 		TimeSpan? curPos;
-		SongMetadata? curSong;
 
 		lock (_stateLock) {
-			_currentState = state;
+			switch (state) {
+				case State.Stopped:
+					// we were playing (probably?), now we're not
+					_currentPosition = TimeSpan.Zero;
+					_currentSong = null;
+					_currentState = State.Stopped;
+					break;
+
+				case State.Playing:
+					// we weren't playing (probably?), now we are
+					_currentSong = song;
+					_currentState = state;
+					break;
+
+				default:
+					// paused probably
+					_currentState = state;
+					return;
+			}
+
 			curPos = _currentPosition;
-			curSong = _currentSong;
+		}
+
+		if (song != null) {
+			_logger.LogInformation("Current Song: {Artist} - {Title} from {Album} (Track {TrackNumber}/{TrackTotal}) - Duration: {Duration}",
+				string.Join(", ", song.Artists ?? Enumerable.Empty<string>()),
+				song.Title,
+				song.Album,
+				song.TrackNumber,
+				song.TrackTotal,
+				song.Duration);
 		}
 
 		StateChanged?.Invoke(this, new StateChangedEventArgs() {
 			State    = state,
 			Position = curPos,
-			Song     = curSong
+			Song     = song
 		});
 	}
 
@@ -116,46 +144,25 @@ internal abstract class AudioPlayer(ILogger logger)
 		}
 	}
 
-	protected void OnMediaMetadataAvailable(SongMetadata song)
-	{
-		State curState;
-		TimeSpan curPos;
-
-		lock (_stateLock) {
-			_currentSong = song;
-			curState = _currentState;
-			curPos = _currentPosition;
-		}
-
-		StateChanged?.Invoke(this, new StateChangedEventArgs() {
-			Song = song,
-			State = curState,
-			Position = curPos
-		});
-
-		_logger.LogInformation("Current Song: {Artist} - {Title} from {Album} (Track {TrackNumber}/{TrackTotal}) - Duration: {Duration}",
-			string.Join(", ", song.Artists ?? Enumerable.Empty<string>()),
-			song.Title,
-			song.Album,
-			song.TrackNumber,
-			song.TrackTotal,
-			song.Duration);
-	}
-
 	protected void OnPositionChanged(TimeSpan position)
 	{
 		var curState = State.Stopped;
 		var sendPos = false;
 
 		lock (_stateLock) {
-			// only send(/update) the event if position changed by enough
-			if (Math.Abs((position - _currentPosition).TotalSeconds) > 1.0) {
-				_currentPosition = position;
+			// always keep track of our most recent position
+			_currentPosition = position;
+
+			// if our position has sufficiently changed since we reported, then report
+			if (Math.Abs((position - _lastReportedPos).TotalSeconds) > 1.0) {
+				_lastReportedPos = position;
 				curState = _currentState;
 				sendPos = true;
 			}
 		}
 
+		// if we need to raise the event, then do that
+		// maybe we want to do this on a different thread...?
 		if (sendPos) {
 			StateChanged?.Invoke(this, new StateChangedEventArgs() {
 				State = curState,

@@ -35,42 +35,53 @@ internal class PlayerHandlers
 
 	public static async Task<PlayerState> Play([FromServices]AudioPlayer player, CancellationToken cancellationToken = default)
 	{
-		var tcs = new TaskCompletionSource<bool>();
+		if (!await player.Play()) {
+			throw new Exception("Failed to play");
+		}
 
-		player.StateChanged += ChangeHandler;
-
-		await player.Play();
-
-		await tcs.Task.WaitAsync(TimeSpan.FromMilliseconds(250), cancellationToken);
-
-		player.StateChanged -= ChangeHandler;
-
-		var (state, song, position) = player.GetState();
+		var (state, song, _) = player.GetState();
 
 		return new PlayerState(state, song, 0, 0);
+	}
 
-		void ChangeHandler(object? s, StateChangedEventArgs e)
-		{
-			if (e.State.HasValue) {
-				tcs.SetResult(true);
-			}
+	public static async Task<PlayerState> Pause([FromServices]AudioPlayer player)
+	{
+		if (!await player.Pause()) {
+			throw new Exception("Failed to pause");
 		}
+
+		var (state, song, _) = player.GetState();
+
+		return new PlayerState(state, song, 0, 0);
 	}
 
-	public static Task Pause([FromServices]AudioPlayer player) => player.Pause();
-
-	public static Task Stop([FromServices]AudioPlayer player) => player.Stop();
-
-	public static async Task<PlayerState> Advance([FromServices]AudioPlayer player, CancellationToken cancellationToken = default)
+	public static async Task<PlayerState> Stop([FromServices]AudioPlayer player)
 	{
-		await player.Advance();
+		if (!await player.Stop()) {
+			throw new Exception("Failed to stop");
+		}
 
-		return new PlayerState(State.Playing, null, 0, 0);//player.GetState();
+		var (state, song, _) = player.GetState();
+
+		return new PlayerState(state, song, 0, 0);
 	}
 
-	public static Task<PlayerState> GetState(AudioPlayer player, CancellationToken cancellationToken = default)
+	public static async Task<PlayerState> Advance([FromServices]AudioPlayer player)
 	{
-		return Task.FromResult(new PlayerState(State.Playing, null, 0, 0));//player.GetState();
+		if (!await player.Advance()) {
+			throw new Exception("Failed to advance");
+		}
+
+		var (state, song, _) = player.GetState();
+
+		return new PlayerState(state, song, 0, 0);
+	}
+
+	public static PlayerState GetState(AudioPlayer player)
+	{
+		var (state, song, _) = player.GetState();
+
+		return new PlayerState(state, song, 0, 0);
 	}
 
 	public static async Task GetStateStream([FromServices]AudioPlayer player, HttpContext httpContext, CancellationToken cancellationToken)
