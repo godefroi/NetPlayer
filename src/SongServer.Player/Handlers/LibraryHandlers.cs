@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Net.Http.Headers;
 using SongServer.Services.Library;
+using SongServer.Services.Smb;
 
 namespace SongServer.Handlers;
 
@@ -94,7 +96,7 @@ internal class LibraryHandlers
 		}
 	}
 
-	public static async Task StreamSongAsync(string songInfo, HttpContext context, LibraryContext library, ILogger<LibraryService> logger)
+	public static async Task StreamSongAsync(string songInfo, HttpContext context, LibraryContext library, SmbFileClient smbClient, ILogger<LibraryService> logger)
 	{
 		try {
 			// Decode base64 JSON string
@@ -134,19 +136,80 @@ internal class LibraryHandlers
 				return;
 			}
 
-			var filePath = song.Url.LocalPath;
+			//await StreamFilesystemFile(song, context.Response, logger);
+			await StreamSmbFile(song, smbClient, context.Response, logger);
+		} catch (Exception ex) {
+			logger.LogError(ex, "Error streaming song");
+			context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+			await context.Response.WriteAsJsonAsync(new { error = "Error streaming song: " + ex.Message });
+		}
+	}
 
-			// Check if file exists
-			if (!File.Exists(filePath)) {
-				logger.LogError("File not found for song: {filePath}", filePath);
-				context.Response.StatusCode = StatusCodes.Status404NotFound;
-				return;
+	private static async Task StreamFilesystemFile(Song song, HttpResponse response, ILogger logger)
+	{
+		var filePath = Path.Combine(song.SourcePath, song.RelativePath);
+
+		// Check if file exists
+		if (!File.Exists(filePath)) {
+			logger.LogError("File not found for song: {filePath}", filePath);
+			response.StatusCode = StatusCodes.Status404NotFound;
+			return;
+		}
+
+		// Get file info
+		var fileInfo = new FileInfo(filePath);
+
+		// Determine content type based on file extension
+		var contentType = Path.GetExtension(filePath).ToLowerInvariant() switch {
+			".mp3" => "audio/mpeg",
+			".flac" => "audio/flac",
+			".opus" => "audio/opus",
+			".m4a" => "audio/mp4",
+			_ => "application/octet-stream",
+		};
+
+		// Set response headers for streaming
+		response.ContentType = contentType;
+		response.ContentLength = fileInfo.Length;
+		response.Headers.AcceptRanges = "bytes";
+		response.Headers[HeaderNames.ETag] = new EntityTagHeaderValue($"\"{song.FileHash}\"", isWeak: true).ToString();
+		response.Headers[HeaderNames.LastModified] = new DateTimeOffset(song.FileModified).ToString("R");
+		response.Headers[HeaderNames.CacheControl] = "public, max-age=31536000, immutable";
+
+		// Stream the file
+		await response.SendFileAsync(filePath);
+	}
+
+	private static async Task StreamSmbFile(Song song, SmbFileClient smb, HttpResponse response, ILogger logger)
+	{
+		var filePath = Path.Combine(song.SourcePath, song.RelativePath);
+
+		try {
+			// Open the file from SMB
+			var (store, handle) = smb.OpenRead(filePath);
+
+			// Get file information to determine length
+			var fistat = store.GetFileInformation(out var fileInfo, handle, SMBLibrary.FileInformationClass.FileStandardInformation);
+			
+			switch (fistat) {
+				case SMBLibrary.NTStatus.STATUS_SUCCESS:
+					break;
+
+				case SMBLibrary.NTStatus.STATUS_NO_SUCH_FILE:
+					logger.LogError("File not found for song: {filePath}", filePath);
+					response.StatusCode = StatusCodes.Status404NotFound;
+					return;
+
+				default:
+					response.StatusCode = StatusCodes.Status500InternalServerError;
+					await response.WriteAsJsonAsync(new ProblemDetails() {
+						Status = response.StatusCode,
+						Detail = $"An error occurred reading file from SMB server: {fistat}",
+					});
+					return;
 			}
 
-			// Get file info
-			var fileInfo = new FileInfo(filePath);
-
-			// Determine content type based on file extension
+			// Get file extension to determine content type
 			var contentType = Path.GetExtension(filePath).ToLowerInvariant() switch {
 				".mp3" => "audio/mpeg",
 				".flac" => "audio/flac",
@@ -155,20 +218,40 @@ internal class LibraryHandlers
 				_ => "application/octet-stream",
 			};
 
-			// Set response headers for streaming
-			context.Response.ContentType = contentType;
-			context.Response.ContentLength = fileInfo.Length;
-			context.Response.Headers.AcceptRanges = "bytes";
-			context.Response.Headers[HeaderNames.ETag] = new EntityTagHeaderValue($"\"{song.FileHash}\"", isWeak: true).ToString();
-			context.Response.Headers[HeaderNames.LastModified] = new DateTimeOffset(song.FileModified).ToString("R");
-			context.Response.Headers[HeaderNames.CacheControl] = "public, max-age=31536000, immutable";
+			var stdInfo = fileInfo as SMBLibrary.FileStandardInformation ?? throw new InvalidOperationException("Wrong class returned from GetFileInformation()");
 
-			// Stream the file
-			await context.Response.SendFileAsync(filePath);
+			// Set response headers for streaming
+			response.ContentType = contentType;
+			response.ContentLength = stdInfo.EndOfFile;
+			response.Headers.AcceptRanges = "bytes";
+			response.Headers[HeaderNames.ETag] = new EntityTagHeaderValue($"\"{song.FileHash}\"", isWeak: true).ToString();
+			response.Headers[HeaderNames.LastModified] = new DateTimeOffset(song.FileModified).ToString("R");
+			response.Headers[HeaderNames.CacheControl] = "public, max-age=31536000, immutable";
+
+			logger.LogInformation("Preparing to stream song of type {type} and length {length}", contentType, stdInfo.EndOfFile);
+
+			// Stream the file in chunks
+			const int bufferSize = 65536; // 64KB chunks
+			long position = 0;
+
+			while (position < stdInfo.EndOfFile) {
+				var readSize = (int)Math.Min(bufferSize, stdInfo.EndOfFile - position);
+				var readStatus = store.ReadFile(out var data, handle, position, readSize);
+
+				if (readStatus != SMBLibrary.NTStatus.STATUS_SUCCESS) {
+					throw new IOException($"Failed to read file at position {position}: {readStatus}");
+				}
+
+				await response.Body.WriteAsync(data);
+				position += data.Length;
+			}
 		} catch (Exception ex) {
-			logger.LogError(ex, "Error streaming song");
-			context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-			await context.Response.WriteAsJsonAsync(new { error = "Error streaming song: " + ex.Message });
+			if (!response.HasStarted) {
+				response.StatusCode = StatusCodes.Status500InternalServerError;
+				await response.WriteAsJsonAsync(new { error = "Error streaming SMB file: " + ex.Message });
+			} else {
+				throw;
+			}
 		}
 	}
 }
