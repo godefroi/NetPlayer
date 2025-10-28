@@ -101,26 +101,25 @@ internal abstract class AudioPlayer(ILogger logger)
 					// we were playing (probably?), now we're not
 					_currentPosition = TimeSpan.Zero;
 					_currentSong = null;
-					_currentState = State.Stopped;
 					break;
 
 				case State.Playing:
 					// we weren't playing (probably?), now we are
 					_currentSong = song;
-					_currentState = state;
 					break;
 
 				default:
 					// paused probably
-					_currentState = state;
 					return;
 			}
 
+			_currentState = state;
 			curPos = _currentPosition;
 		}
 
 		if (song != null) {
-			_logger.LogInformation("Current Song: {Artist} - {Title} from {Album} (Track {TrackNumber}/{TrackTotal}) - Duration: {Duration}",
+			_logger.LogInformation("State updated to {state}, current Song: {Artist} - {Title} from {Album} (Track {TrackNumber}/{TrackTotal}) - Duration: {Duration}",
+				state,
 				string.Join(", ", song.Artists ?? Enumerable.Empty<string>()),
 				song.Title,
 				song.Album,

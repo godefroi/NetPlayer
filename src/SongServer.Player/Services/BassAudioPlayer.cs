@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using ManagedBass;
 using ManagedBass.Opus;
 using SongServer.Services.Library;
@@ -122,22 +124,20 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 
 			_logger.LogInformation("Loading file: {reference}", song);
 
-			var dbSong   = await _library.GetSong(song) ?? throw new InvalidOperationException("The specified song does not exist.");
-			var songPath = Path.Combine(dbSong.SourcePath, dbSong.RelativePath);
+			var dbSong    = await _library.GetSong(song) ?? throw new InvalidOperationException("The specified song does not exist.");
+			var songPath  = Path.Combine(dbSong.SourcePath, dbSong.RelativePath);
+			var streamUri = new UriBuilder(Uri.UriSchemeHttp, "localhost", 5000, $"/library/stream/{Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(song)))}").Uri; // TODO: don't hard-code this
 
 			// Create a BASS stream from the file path
 			_stream = Path.GetExtension(songPath) switch {
-				".opus" => BassOpus.CreateStream(songPath, 0, 0, BassFlags.Default | BassFlags.BassLoudnessCurrent),
-				_ => Bass.CreateStream(songPath, 0, 0, BassFlags.Default | BassFlags.BassLoudnessCurrent),
+				".opus" => BassOpus.CreateStream(streamUri.ToString(), 0, BassFlags.Default | BassFlags.BassLoudnessCurrent, (_, _, _) => { }),
+				_ => Bass.CreateStream(streamUri.ToString(), 0, BassFlags.Default | BassFlags.BassLoudnessCurrent, (_, _, _) => { }),
 			};
 
 			if (_stream == 0) {
 				_logger.LogError("Failed to create stream: {error}", Bass.LastError);
 				return false;
 			}
-
-			// Load metadata from the file
-			//await LoadMetadata(song.RelativePath);
 
 			// Start playback
 			if (!Bass.ChannelPlay(_stream)) {
@@ -148,6 +148,7 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 			}
 
 			OnPlayerStateChanged(State.Playing, new SongMetadata(dbSong.Performers, dbSong.Album, dbSong.Title, dbSong.TrackNumber, dbSong.TrackCount, "about:empty", dbSong.Duration));
+
 			return true;
 		} catch (Exception ex) {
 			_logger.LogError(ex, "Error playing file");
@@ -188,7 +189,6 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 							// thread, because we're holding the semaphore, and the
 							// base class is surely going to call Play() on us)
 							_ = OnPlaybackFinished();
-							break;
 						}
 					} else {
 						// ensure we zero out position and state if _stream is recently zeroed out

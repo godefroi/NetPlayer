@@ -3,6 +3,7 @@ using SongServer.Handlers;
 using SongServer.Services;
 using SongServer.Services.Library;
 using SongServer.Services.Mpd;
+using SongServer.Services.Smb;
 
 namespace SongServer;
 
@@ -18,7 +19,7 @@ internal class Program
 		// 	var t = MpdClient.CreateClient(sp.GetRequiredService<ILogger<MpdClient>>());
 		// 	return t.GetAwaiter().GetResult();
 		// });
-		builder.Services.AddTransient<MpdClient>();
+		builder.Services.AddSingleton<SmbFileClient>();
 		builder.Services.AddSingleton<AudioPlayer, BassAudioPlayer>();
 		builder.Services.AddSingleton<LibraryService>();
 		builder.Services.AddSingleton<JsonLibrary>();

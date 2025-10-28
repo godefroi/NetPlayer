@@ -30,7 +30,7 @@ internal class AudioPlayerService(AudioPlayer player, IDbContextFactory<LibraryC
 		};
 
 		if (state.ShuffleSeed != null) {
-			// playlist.Shuffle(state.ShuffleSeed.Value);
+			playlist.Shuffle(state.ShuffleSeed.Value);
 		}
 
 		_logger.LogInformation("Loading {count} entries from playlist.", playlist.Entries.Count);

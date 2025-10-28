@@ -155,7 +155,7 @@ internal class LibraryHandlers
 				_ => "application/octet-stream",
 			};
 
-			// Set response headers for streaming and MPD compatibility
+			// Set response headers for streaming
 			context.Response.ContentType = contentType;
 			context.Response.ContentLength = fileInfo.Length;
 			context.Response.Headers.AcceptRanges = "bytes";
