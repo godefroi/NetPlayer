@@ -8,31 +8,27 @@ public class Playlist
 {
 	private readonly static FrozenSet<string> _extensions = [".m3u", ".m3u8"];
 
-	public static Playlist Empty { get; } = new Playlist([], string.Empty);
+	public static Playlist Empty { get; } = new Playlist([]);
 
-	private readonly List<Uri> _entries;
+	private readonly List<SongReference> _entries;
 
-	public Playlist(IEnumerable<string> entries)
+	public Playlist(IEnumerable<SongReference> entries)
 	{
 		using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 
 		_entries = [];
 
 		foreach (var entry in entries) {
-			hasher.AppendData(MemoryMarshal.AsBytes(entry.AsSpan()));
-			_entries.Add(ConvertToUri(entry));
+			var sid = entry.SourceId;
+			hasher.AppendData(MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref sid, 1)));
+			hasher.AppendData(MemoryMarshal.AsBytes(entry.RelativePath.AsSpan()));
+			_entries.Add(entry);
 		}
 
 		Hash = Convert.ToHexStringLower(hasher.GetCurrentHash());
 	}
 
-	private Playlist(List<Uri> entries, string hash)
-	{
-		_entries = entries;
-		Hash     = hash;
-	}
-
-	public IReadOnlyList<Uri> Entries => _entries;
+	public IReadOnlyList<SongReference> Entries => _entries;
 
 	public string Hash { get; }
 
@@ -73,30 +69,30 @@ public class Playlist
 		}
 	}
 
-	public static async Task<Playlist> Load(string path)
-	{
-		var visitedFiles = new HashSet<string>();
-		var entries      = new List<Uri>();
+	// public static async Task<Playlist> Load(string path)
+	// {
+	// 	var visitedFiles = new HashSet<string>();
+	// 	var entries      = new List<Uri>();
 
-		using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+	// 	using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 
-		await LoadList(path, entries, visitedFiles, hasher);
+	// 	await LoadList(path, entries, visitedFiles, hasher);
 
-		return new Playlist(entries, Convert.ToHexStringLower(hasher.GetCurrentHash()));
-	}
+	// 	return new Playlist(entries, Convert.ToHexStringLower(hasher.GetCurrentHash()));
+	// }
 
-	public static Playlist Load(IEnumerable<Uri> entries)
-	{
-		using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+	// public static Playlist Load(IEnumerable<Uri> entries)
+	// {
+	// 	using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 
-		var entryList = entries.ToList();
+	// 	var entryList = entries.ToList();
 
-		foreach (var e in entries) {
-			hasher.AppendData(MemoryMarshal.AsBytes(e.OriginalString.AsSpan()));
-		}
+	// 	foreach (var e in entries) {
+	// 		hasher.AppendData(MemoryMarshal.AsBytes(e.OriginalString.AsSpan()));
+	// 	}
 
-		return new Playlist(entryList, Convert.ToHexStringLower(hasher.GetCurrentHash()));
-	}
+	// 	return new Playlist(entryList, Convert.ToHexStringLower(hasher.GetCurrentHash()));
+	// }
 
 	private static async Task LoadList(string listPath, List<Uri> entries, HashSet<string> visitedFiles, IncrementalHash hasher)
 	{

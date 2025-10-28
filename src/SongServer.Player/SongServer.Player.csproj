@@ -13,6 +13,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="ManagedBass" Version="4.0.2" />
+    <PackageReference Include="ManagedBass.Opus" Version="4.0.2" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.2.0" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21" Condition="'$(RuntimeIdentifier)' == 'win-x64' or '$(RuntimeIdentifier)' == 'win-x86' or '$(RuntimeIdentifier)' == 'win-arm64' or '$(RuntimeIdentifier)' == ''" />
     <PackageReference Include="LibVLCSharp" Version="3.9.4" />

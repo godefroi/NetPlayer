@@ -2,47 +2,69 @@ namespace SongServer.Services;
 
 internal abstract class AudioPlayer(ILogger logger)
 {
-	protected readonly Lock _stateLock = new();
+	private readonly Lock _stateLock = new();
 	private readonly ILogger _logger = logger;
-	protected readonly Queue<Uri> _queue = [];
-	protected Playlist _list = Playlist.Empty;
-	protected PlaylistState _state = PlaylistState.Empty;
-	protected SongMetadata? _currentSong = null;
-	protected TimeSpan _currentPosition = TimeSpan.FromSeconds(-1);
-	protected State _currentState = State.Stopped;
+	private readonly Queue<SongReference> _queue = [];
+	private Playlist _list = Playlist.Empty;
+	private PlaylistState _state = PlaylistState.Empty;
+	private SongMetadata? _currentSong = null;
+	private TimeSpan _currentPosition = TimeSpan.FromSeconds(-1);
+	private State _currentState = State.Stopped;
 
 	public event EventHandler<StateChangedEventArgs>? StateChanged;
 
-	public abstract void Play();
-
-	public abstract void Pause();
-
-	public abstract void Stop();
-
-	protected abstract void Play(Uri uri);
-
-	public void Advance()
+	public async Task<bool> Play()
 	{
+		State state;
+
 		lock (_stateLock) {
-			// if we have no songs in the queue, then put the next song from
-			// the playlist into the queue, if there are any songs in it
-			if (_queue.Count == 0 && _list.Entries.Count > 0) {
-				// check if the index is now out of bounds
-				if (++_state.CurrentIndex >= _list.Entries.Count) {
-					_state.CurrentIndex = 0;
-				}
+			state = _currentState;
+		}
 
-				// add the next song to the queue
-				_queue.Enqueue(_list.Entries[_state.CurrentIndex]);
+		_logger.LogInformation("Play() called. State: {state}", state);
+
+		switch (state) {
+			case State.Playing:
+				// nothing to do if we're already playing
+				return true;
+			case State.Paused:
+				return await Resume();
+			case State.Stopped:
+				return await Advance();
+			default:
+				throw new InvalidOperationException($"Unknown state {state}");
+		}
+	}
+
+	public abstract Task<bool> Pause();
+
+	public abstract Task<bool> Stop();
+
+	public async Task<bool> Advance()
+	{
+		// if we have no songs in the queue, then put the next song from
+		// the playlist into the queue, if there are any songs in it
+		if (_queue.Count == 0 && _list.Entries.Count > 0) {
+			// check if the index is now out of bounds
+			if (++_state.CurrentIndex >= _list.Entries.Count) {
+				_state.CurrentIndex = 0;
 			}
 
-			// now, play the next song in the queue
-			if (_queue.Count > 0) {
-				_logger.LogDebug("Advancing to the next song in the queue");
-				Play(_queue.Dequeue());
-			} else {
-				_logger.LogWarning("Cannot advance, nothing to play!");
-			}
+			// add the next song to the queue
+			_queue.Enqueue(_list.Entries[_state.CurrentIndex]);
+		}
+
+		// now, play the next song in the queue
+		if (_queue.Count > 0) {
+			_logger.LogDebug("Advancing to the next song in the queue");
+			// the only difficulty here is that our implementation might not provide
+			// us with the current media's metadata; we're going to have to take care
+			// of that ourselves
+			// TODO: do that by loading the tag out of the file and verifying that we actually staretd playing
+			return await Play(_queue.Dequeue());
+		} else {
+			_logger.LogWarning("Cannot advance, nothing to play!");
+			return false;
 		}
 	}
 
@@ -61,14 +83,14 @@ internal abstract class AudioPlayer(ILogger logger)
 		}
 	}
 
-	public void Enqueue(Uri uri)
+	public void Enqueue(SongReference song)
 	{
 		lock (_stateLock) {
-			_queue.Enqueue(uri);
+			_queue.Enqueue(song);
 		}
 	}
 
-	public void OnPlayerStateChanged(State state)
+	protected void OnPlayerStateChanged(State state)
 	{
 		TimeSpan? curPos;
 		SongMetadata? curSong;
@@ -86,7 +108,15 @@ internal abstract class AudioPlayer(ILogger logger)
 		});
 	}
 
-	public void OnMediaMetadataAvailable(SongMetadata song)
+	protected async Task OnPlaybackFinished()
+	{
+		if (!await Advance()) {
+			OnPositionChanged(TimeSpan.Zero);
+			OnPlayerStateChanged(State.Stopped);
+		}
+	}
+
+	protected void OnMediaMetadataAvailable(SongMetadata song)
 	{
 		State curState;
 		TimeSpan curPos;
@@ -112,7 +142,7 @@ internal abstract class AudioPlayer(ILogger logger)
 			song.Duration);
 	}
 
-	public void OnPositionChanged(TimeSpan position)
+	protected void OnPositionChanged(TimeSpan position)
 	{
 		var curState = State.Stopped;
 		var sendPos = false;
@@ -134,6 +164,10 @@ internal abstract class AudioPlayer(ILogger logger)
 			});
 		}
 	}
+
+	protected abstract Task<bool> Resume();
+
+	protected abstract Task<bool> Play(SongReference song);
 
 	internal class PlaylistState
 	{

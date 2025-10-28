@@ -55,6 +55,16 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 		await RefreshAsync();
 	}
 
+	public async Task<Song?> GetSong(SongReference songReference, CancellationToken cancellationToken = default)
+	{
+		using var ctx = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+		return await ctx.Songs
+			.AsNoTracking()
+			.Include(s => s.Source)
+			.SingleOrDefaultAsync(s => s.SourceId == songReference.SourceId && s.RelativePath == songReference.RelativePath, cancellationToken);
+	}
+
 	public async Task<List<(string Artist, List<string> Albums)>> GetArtists()
 	{
 		using var context = await _contextFactory.CreateDbContextAsync();

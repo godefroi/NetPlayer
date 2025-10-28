@@ -30,6 +30,8 @@ internal class PlaylistHandlers
 	{
 		try {
 			var songs = (await context.Playlist
+				.AsNoTracking()
+				.Include(p => p.Song)
 				.ToListAsync())
 				.Select(p => new SongMetadata(p.Song!.AlbumArtists, p.Song!.Album, p.Song!.Title, p.Song!.TrackNumber, p.Song!.TrackCount, null, p.Song!.Duration))
 				.ToList();

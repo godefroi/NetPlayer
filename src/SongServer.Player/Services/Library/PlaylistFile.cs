@@ -9,6 +9,8 @@ public class PlaylistFile
 
 	public required string RelativePath { get; set; }
 
+	public Source? Source { get; set; }
+
 	public Song? Song { get; set; }
 }
 
@@ -28,12 +30,14 @@ public class PlaylistFileConfiguration : IEntityTypeConfiguration<PlaylistFile>
 			.HasColumnName("relative_path")
 			.IsRequired();
 
+		builder.HasOne(p => p.Source)
+			.WithMany()
+			.HasForeignKey(p => new { p.SourceId })
+			.OnDelete(DeleteBehavior.Cascade);
+
 		builder.HasOne(p => p.Song)
 			.WithMany()
 			.HasForeignKey(p => new { p.SourceId, p.RelativePath })
 			.OnDelete(DeleteBehavior.Cascade);
-
-		builder.Navigation(s => s.Song)
-			.AutoInclude();
 	}
 }

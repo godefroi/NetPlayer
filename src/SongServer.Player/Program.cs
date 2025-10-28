@@ -2,6 +2,7 @@
 using SongServer.Handlers;
 using SongServer.Services;
 using SongServer.Services.Library;
+using SongServer.Services.Mpd;
 
 namespace SongServer;
 
@@ -12,18 +13,24 @@ internal class Program
 		var builder = WebApplication.CreateBuilder(args);
 
 		builder.Services.Configure<PlayerOptions>(builder.Configuration.GetSection(PlayerOptions.SectionName));
-		builder.Services.AddSingleton<AudioPlayer, VlcAudioPlayer>();
+		// builder.Services.AddTransient(sp => {
+		// 	// I don't really know how else to do this... maybe it crashes?
+		// 	var t = MpdClient.CreateClient(sp.GetRequiredService<ILogger<MpdClient>>());
+		// 	return t.GetAwaiter().GetResult();
+		// });
+		builder.Services.AddTransient<MpdClient>();
+		builder.Services.AddSingleton<AudioPlayer, BassAudioPlayer>();
 		builder.Services.AddSingleton<LibraryService>();
 		builder.Services.AddSingleton<JsonLibrary>();
 		builder.Services.AddDbContextFactory<LibraryContext>();
 
-		if (args.Length != 0) {
-			switch (args[0]) {
-				case "showoutput":
-					VlcAudioPlayer.DisplayOutputs();
-					return;
-			}
-		}
+		// if (args.Length != 0) {
+		// 	switch (args[0]) {
+		// 		case "showoutput":
+		// 			VlcAudioPlayer.DisplayOutputs();
+		// 			return;
+		// 	}
+		// }
 
 		builder.Services.AddHostedService<AudioPlayerService>();
 		builder.Services.AddHostedService<PlayerHubBroadcaster>();
@@ -55,6 +62,62 @@ internal class Program
 		// 	]);
 		// 	return;
 		// }
+
+		// using (var scope = app.Services.CreateScope()) {
+		// 	using var context = scope.ServiceProvider.GetRequiredService<LibraryContext>();
+
+		// 	var playlist = Playlist.Load(context.Playlist.Where(s => s.Song != null).Select(s => s.Song!.Url));
+		// 	var state    = new AudioPlayer.PlaylistState() {
+		// 		Path = "nowhere_in_particular",
+		// 		Hash = playlist.Hash,
+		// 		ShuffleSeed = Random.Shared.Next(),
+		// 	};
+
+		// 	if (state.ShuffleSeed != null) {
+		// 		playlist.Shuffle(state.ShuffleSeed.Value);
+		// 	}
+
+		// 	var player = scope.ServiceProvider.GetRequiredService<AudioPlayer>();
+
+		// 	Console.WriteLine("press a key to set the playlist...");
+		// 	Console.ReadKey(true);
+		// 	player.SetPlaylist(playlist, state);
+
+		// 	Console.WriteLine("press a key to play...");
+		// 	Console.ReadKey(true);
+		// 	player.Play();
+
+		// 	Console.WriteLine("press a key to stop...");
+		// 	Console.ReadKey(true);
+		// 	player.Stop();
+
+		// 	return;
+		// }
+
+		// using (var scope = app.Services.CreateScope()) {
+		// 	var player = scope.ServiceProvider.GetRequiredService<AudioPlayer>();
+		// 	using var context = scope.ServiceProvider.GetRequiredService<LibraryContext>();
+
+		// 	var playlist = Playlist.Load(context.Playlist.Where(s => s.Song != null).Select(s => s.Song!.Url));
+		// 	var state    = new AudioPlayer.PlaylistState() {
+		// 		Path = "nowhere_in_particular",
+		// 		Hash = playlist.Hash,
+		// 		ShuffleSeed = Random.Shared.Next(),
+		// 	};
+
+		// 	if (state.ShuffleSeed != null) {
+		// 		playlist.Shuffle(state.ShuffleSeed.Value);
+		// 	}
+
+		// 	player.SetPlaylist(playlist, state);
+
+		// 	await player.Play();
+		// 	await Task.Delay(TimeSpan.FromSeconds(10));
+		// 	await player.Stop();
+
+		// 	return;
+		// }
+
 
 // 		using (var scope = app.Services.CreateScope()) {
 // 			var library = scope.ServiceProvider.GetRequiredService<LibraryContext>();
@@ -92,12 +155,6 @@ internal class Program
 		await Task.CompletedTask;
 
 		//AudioPlayer.DisplayOutputs();
-
-		var pl = new Playlist([
-			@"\\vmhost.local\media\Audio\Full CDs\Blink 182\Enema Of The State\08 - All the Small Things.mp3",
-			@"\\vmhost.local\media\Audio\Full CDs\Blind Melon\Blind Melon\07 - No Rain.mp3",
-			@"\\vmhost.local\media\Audio\Full CDs\Blur\Blur\02 - Song 2.mp3"
-		]);
 
 		// using var player = new AudioPlayer(pl, new AudioPlayer.PlaylistState() {
 		// 	Path = "my imagination",

@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using SongServer.Services;
@@ -38,7 +39,7 @@ internal class PlayerHandlers
 
 		player.StateChanged += ChangeHandler;
 
-		player.Play();
+		await player.Play();
 
 		await tcs.Task.WaitAsync(TimeSpan.FromMilliseconds(250), cancellationToken);
 
@@ -56,13 +57,13 @@ internal class PlayerHandlers
 		}
 	}
 
-	public static void Pause([FromServices]AudioPlayer player) => player.Pause();
+	public static Task Pause([FromServices]AudioPlayer player) => player.Pause();
 
-	public static void Stop([FromServices]AudioPlayer player) => player.Stop();
+	public static Task Stop([FromServices]AudioPlayer player) => player.Stop();
 
-	public static PlayerState Advance([FromServices]AudioPlayer player, CancellationToken cancellationToken = default)
+	public static async Task<PlayerState> Advance([FromServices]AudioPlayer player, CancellationToken cancellationToken = default)
 	{
-		player.Advance();
+		await player.Advance();
 
 		return new PlayerState(State.Playing, null, 0, 0);//player.GetState();
 	}
@@ -140,7 +141,7 @@ internal class PlayerHandlers
 			});
 		}
 
-		player.Enqueue(songs[0].Url);
+		player.Enqueue(new SongReference(songs[0].SourceId, songs[0].RelativePath));
 
 		//return TypedResults.Ok(player.GetState());
 		return TypedResults.Ok(new PlayerState(State.Stopped, null, 0, 0));
