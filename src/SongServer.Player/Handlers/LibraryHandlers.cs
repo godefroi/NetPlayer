@@ -94,7 +94,7 @@ internal class LibraryHandlers
 		}
 	}
 
-	public static async Task<Results<Ok, NotFound, BadRequest<string>, ProblemHttpResult>> StreamSongAsync(string songInfo, HttpContext context, LibraryContext library, ILogger<LibraryService> logger)
+	public static async Task StreamSongAsync(string songInfo, HttpContext context, LibraryContext library, ILogger<LibraryService> logger)
 	{
 		try {
 			// Decode base64 JSON string
@@ -102,7 +102,9 @@ internal class LibraryHandlers
 			try {
 				decodedBytes = Convert.FromBase64String(songInfo);
 			} catch (FormatException) {
-				return TypedResults.BadRequest("Invalid base64 encoding in songInfo parameter");
+				context.Response.StatusCode = StatusCodes.Status400BadRequest;
+				await context.Response.WriteAsJsonAsync(new { error = "Invalid base64 encoding in songInfo parameter" });
+				return;
 			}
 
 			var jsonString = System.Text.Encoding.UTF8.GetString(decodedBytes);
@@ -112,11 +114,15 @@ internal class LibraryHandlers
 			try {
 				songReference = JsonSerializer.Deserialize<SongReference>(jsonString);
 			} catch (JsonException) {
-				return TypedResults.BadRequest("Invalid JSON in songInfo parameter");
+				context.Response.StatusCode = StatusCodes.Status400BadRequest;
+				await context.Response.WriteAsJsonAsync(new { error = "Invalid JSON in songInfo parameter" });
+				return;
 			}
 
 			if (songReference == null || songReference.SourceId == default || string.IsNullOrEmpty(songReference.RelativePath)) {
-				return TypedResults.BadRequest("songInfo must contain valid 'sourcePath' and 'relativePath' properties");
+				context.Response.StatusCode = StatusCodes.Status400BadRequest;
+				await context.Response.WriteAsJsonAsync(new { error = "songInfo must contain valid 'sourcePath' and 'relativePath' properties" });
+				return;
 			}
 
 			// Get the song from the library service
@@ -124,7 +130,8 @@ internal class LibraryHandlers
 
 			if (song == null) {
 				logger.LogWarning("Song not found: sourceId={sourceId}, relativePath={relativePath}", songReference.SourceId, songReference.RelativePath);
-				return TypedResults.NotFound();
+				context.Response.StatusCode = StatusCodes.Status404NotFound;
+				return;
 			}
 
 			var filePath = song.Url.LocalPath;
@@ -132,7 +139,8 @@ internal class LibraryHandlers
 			// Check if file exists
 			if (!File.Exists(filePath)) {
 				logger.LogError("File not found for song: {filePath}", filePath);
-				return TypedResults.NotFound();
+				context.Response.StatusCode = StatusCodes.Status404NotFound;
+				return;
 			}
 
 			// Get file info
@@ -157,11 +165,10 @@ internal class LibraryHandlers
 
 			// Stream the file
 			await context.Response.SendFileAsync(filePath);
-
-			return TypedResults.Ok();
 		} catch (Exception ex) {
 			logger.LogError(ex, "Error streaming song");
-			return TypedResults.Problem(new() { Title = "Error streaming song: " + ex.Message });
+			context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+			await context.Response.WriteAsJsonAsync(new { error = "Error streaming song: " + ex.Message });
 		}
 	}
 }
