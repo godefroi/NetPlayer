@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using SongServer.Services;
@@ -39,9 +38,9 @@ internal class PlayerHandlers
 			throw new Exception("Failed to play");
 		}
 
-		var (state, song, _) = player.GetState();
+		var (state, song, position) = player.GetState();
 
-		return new PlayerState(state, song, 0, 0);
+		return new PlayerState(state, song, position, 0, 0);
 	}
 
 	public static async Task<PlayerState> Pause([FromServices]AudioPlayer player)
@@ -50,9 +49,9 @@ internal class PlayerHandlers
 			throw new Exception("Failed to pause");
 		}
 
-		var (state, song, _) = player.GetState();
+		var (state, song, position) = player.GetState();
 
-		return new PlayerState(state, song, 0, 0);
+		return new PlayerState(state, song, position, 0, 0);
 	}
 
 	public static async Task<PlayerState> Stop([FromServices]AudioPlayer player)
@@ -61,9 +60,9 @@ internal class PlayerHandlers
 			throw new Exception("Failed to stop");
 		}
 
-		var (state, song, _) = player.GetState();
+		var (state, song, position) = player.GetState();
 
-		return new PlayerState(state, song, 0, 0);
+		return new PlayerState(state, song, position, 0, 0);
 	}
 
 	public static async Task<PlayerState> Advance([FromServices]AudioPlayer player)
@@ -72,16 +71,16 @@ internal class PlayerHandlers
 			throw new Exception("Failed to advance");
 		}
 
-		var (state, song, _) = player.GetState();
+		var (state, song, position) = player.GetState();
 
-		return new PlayerState(state, song, 0, 0);
+		return new PlayerState(state, song, position, 0, 0);
 	}
 
 	public static PlayerState GetState(AudioPlayer player)
 	{
-		var (state, song, _) = player.GetState();
+		var (state, song, position) = player.GetState();
 
-		return new PlayerState(state, song, 0, 0);
+		return new PlayerState(state, song, position, 0, 0);
 	}
 
 	public static async Task GetStateStream([FromServices]AudioPlayer player, HttpContext httpContext, CancellationToken cancellationToken)
@@ -154,7 +153,8 @@ internal class PlayerHandlers
 
 		player.Enqueue(new SongReference(songs[0].SourceId, songs[0].RelativePath));
 
-		//return TypedResults.Ok(player.GetState());
-		return TypedResults.Ok(new PlayerState(State.Stopped, null, 0, 0));
+		var (state, song, position) = player.GetState();
+
+		return TypedResults.Ok(new PlayerState(state, song, position, 0, 0));
 	}
 }

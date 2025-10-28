@@ -5,6 +5,8 @@ public record PlayerState(
 
 	SongMetadata? Song,
 
+	TimeSpan? Position,
+
 	int QueueLength,
 
 	int ListLength
