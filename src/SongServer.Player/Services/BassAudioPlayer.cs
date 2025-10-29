@@ -23,17 +23,16 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 		_library = library;
 
 		try {
+			// _logger.LogInformation("BASS output devices ({count})", Bass.DeviceCount);
+
+			// for (var i = 0; i < Bass.DeviceCount; i++ ) {
+			// 	var dev = Bass.GetDeviceInfo(i);
+			// 	_logger.LogInformation("\t{i} [{name}] - driver: {driver} type: {type} default: {default}", i, dev.Name, dev.Driver, dev.Type, dev.IsDefault);
+			// }
+
 			// Initialize BASS with the specified device (or default)
-			if (!Bass.Init()) {
+			if (!Bass.Init(Bass.DefaultDevice)) {
 				throw new InvalidOperationException($"Failed to initialize BASS: {Bass.LastError}");
-			}
-
-			var sb = new StringBuilder();
-			_logger.LogInformation("BASS output devices ({count})", Bass.DeviceCount);
-
-			for (var i = 0; i < Bass.DeviceCount; i++ ) {
-				var dev = Bass.GetDeviceInfo(i);
-				_logger.LogInformation("\t{} driver: {driver} type: {type} default: {default}", dev.Name, dev.Driver, dev.Type, dev.IsDefault);
 			}
 
 			//Bass.Configure(ManagedBass.Configuration.GlobalStreamVolume, 1500);
