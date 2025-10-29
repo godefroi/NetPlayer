@@ -28,7 +28,15 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 				throw new InvalidOperationException($"Failed to initialize BASS: {Bass.LastError}");
 			}
 
-			Bass.Configure(ManagedBass.Configuration.GlobalStreamVolume, 1500);
+			var sb = new StringBuilder();
+			_logger.LogInformation("BASS output devices ({count})", Bass.DeviceCount);
+
+			for (var i = 0; i < Bass.DeviceCount; i++ ) {
+				var dev = Bass.GetDeviceInfo(i);
+				_logger.LogInformation("\t{} driver: {driver} type: {type} default: {default}", dev.Name, dev.Driver, dev.Type, dev.IsDefault);
+			}
+
+			//Bass.Configure(ManagedBass.Configuration.GlobalStreamVolume, 1500);
 
 			_statusTask = MonitorStatus();
 
@@ -130,8 +138,8 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 
 			// Create a BASS stream from the file path
 			_stream = Path.GetExtension(songPath) switch {
-				".opus" => BassOpus.CreateStream(streamUri.ToString(), 0, BassFlags.Default | BassFlags.BassLoudnessCurrent, (_, _, _) => { }),
-				_ => Bass.CreateStream(streamUri.ToString(), 0, BassFlags.Default | BassFlags.BassLoudnessCurrent, (_, _, _) => { }),
+				".opus" => BassOpus.CreateStream(streamUri.ToString(), 0, BassFlags.Default /*| BassFlags.BassLoudnessCurrent*/, (_, _, _) => { }),
+				_ => Bass.CreateStream(streamUri.ToString(), 0, BassFlags.Default /*| BassFlags.BassLoudnessCurrent*/, (_, _, _) => { }),
 			};
 
 			if (_stream == 0) {
