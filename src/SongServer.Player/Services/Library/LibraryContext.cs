@@ -10,6 +10,8 @@ public class LibraryContext : DbContext
 
 	public DbSet<PlaylistFile> Playlist { get; set; }
 
+	public DbSet<StreamMetadata> StreamMetadata { get; set; }
+
 	protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
 	{
 		if (!optionsBuilder.IsConfigured) {
@@ -22,7 +24,6 @@ public class LibraryContext : DbContext
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
 		modelBuilder
-			.ApplyConfigurationsFromAssembly(typeof(LibraryContext).Assembly)
-			.UseCollation("NOCASE");
+			.ApplyConfigurationsFromAssembly(typeof(LibraryContext).Assembly);
 	}
 }

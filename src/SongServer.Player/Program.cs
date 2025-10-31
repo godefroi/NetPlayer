@@ -2,7 +2,6 @@
 using SongServer.Handlers;
 using SongServer.Services;
 using SongServer.Services.Library;
-using SongServer.Services.Mpd;
 using SongServer.Services.Smb;
 
 namespace SongServer;
@@ -14,11 +13,8 @@ internal class Program
 		var builder = WebApplication.CreateBuilder(args);
 
 		builder.Services.Configure<PlayerOptions>(builder.Configuration.GetSection(PlayerOptions.SectionName));
-		// builder.Services.AddTransient(sp => {
-		// 	// I don't really know how else to do this... maybe it crashes?
-		// 	var t = MpdClient.CreateClient(sp.GetRequiredService<ILogger<MpdClient>>());
-		// 	return t.GetAwaiter().GetResult();
-		// });
+		builder.Services.Configure<StreamMetadataOptions>(builder.Configuration.GetSection(StreamMetadataOptions.SectionName));
+
 		builder.Services.AddSingleton<SmbFileClient>();
 		builder.Services.AddSingleton<AudioPlayer, BassAudioPlayer>();
 		builder.Services.AddSingleton<LibraryService>();
@@ -35,6 +31,9 @@ internal class Program
 
 		builder.Services.AddHostedService<AudioPlayerService>();
 		builder.Services.AddHostedService<PlayerHubBroadcaster>();
+		if (builder.Configuration.GetSection(StreamMetadataOptions.SectionName).Exists()) {
+			builder.Services.AddHostedService<StreamMetadataService>();
+		}
 
 		builder.Services.AddCors();
 
