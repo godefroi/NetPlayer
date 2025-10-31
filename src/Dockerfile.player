@@ -25,12 +25,12 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0
 WORKDIR /app
 
 # Install runtime dependencies for audio processing (LibVLC)
-RUN apt-get update && apt-get install -y \
-#    vlc-plugin-base \
-#    vlc-plugin-video-output \
-#    libvlc5 \
-	libvlc-dev vlc \
-	&& rm -rf /var/lib/apt/lists/*
+# RUN apt-get update && apt-get install -y \
+# #    vlc-plugin-base \
+# #    vlc-plugin-video-output \
+# #    libvlc5 \
+# 	libvlc-dev vlc \
+# 	&& rm -rf /var/lib/apt/lists/*
 
 COPY --from=publish /app/publish .
 

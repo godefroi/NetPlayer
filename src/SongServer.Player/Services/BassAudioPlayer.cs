@@ -43,7 +43,6 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 				_logger.LogInformation("Using default audio device.");
 			}
 
-
 			// Initialize BASS with the specified device (or default)
 			if (!Bass.Init(deviceIdx)) {
 				throw new InvalidOperationException($"Failed to initialize BASS: {Bass.LastError}");
