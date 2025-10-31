@@ -21,13 +21,13 @@ internal class Program
 		builder.Services.AddSingleton<JsonLibrary>();
 		builder.Services.AddDbContextFactory<LibraryContext>();
 
-		// if (args.Length != 0) {
-		// 	switch (args[0]) {
-		// 		case "showoutput":
-		// 			VlcAudioPlayer.DisplayOutputs();
-		// 			return;
-		// 	}
-		// }
+		if (args.Length != 0) {
+			switch (args[0]) {
+				case "showoutputs":
+					BassAudioPlayer.DisplayOutputs();
+					return;
+			}
+		}
 
 		builder.Services.AddHostedService<AudioPlayerService>();
 		builder.Services.AddHostedService<PlayerHubBroadcaster>();

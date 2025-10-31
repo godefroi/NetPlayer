@@ -2,6 +2,8 @@ using System.Text;
 using System.Text.Json;
 using ManagedBass;
 using ManagedBass.Opus;
+using Microsoft.Extensions.Options;
+using SongServer.Configuration;
 using SongServer.Services.Library;
 
 namespace SongServer.Services;
@@ -13,25 +15,37 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 	private readonly LibraryService _library;
 	private readonly CancellationTokenSource _statusToken = new();
 	private readonly Task _statusTask;
+	private readonly PlayerOptions _options;
 	private int _stream = 0;
 	private TimeSpan _lastPos = TimeSpan.Zero;
 	private bool _disposed = false;
 
-	public BassAudioPlayer(ILogger<BassAudioPlayer> logger, LibraryService library) : base(logger)
+	public BassAudioPlayer(ILogger<BassAudioPlayer> logger, IOptions<PlayerOptions> options, LibraryService library) : base(logger)
 	{
 		_logger  = logger;
 		_library = library;
+		_options = options.Value;
 
 		try {
-			// _logger.LogInformation("BASS output devices ({count})", Bass.DeviceCount);
+			var deviceIdx = Bass.DefaultDevice;
 
-			// for (var i = 0; i < Bass.DeviceCount; i++ ) {
-			// 	var dev = Bass.GetDeviceInfo(i);
-			// 	_logger.LogInformation("\t{i} [{name}] - driver: {driver} type: {type} default: {default}", i, dev.Name, dev.Driver, dev.Type, dev.IsDefault);
-			// }
+			if (!string.IsNullOrWhiteSpace(_options.Device)) {
+				var devices = Enumerable.Range(0, Bass.DeviceCount).Select(Bass.GetDeviceInfo).ToList();
+
+				deviceIdx = devices.FindIndex(di => di.Name == _options.Device);
+
+				if (deviceIdx == -1) {
+					_logger.LogWarning("Device [{device}] was not found. Using default audio device.", _options.Device);
+				} else {
+					_logger.LogInformation("Using audio device [{device}].", devices[deviceIdx].Name);
+				}
+			} else {
+				_logger.LogInformation("Using default audio device.");
+			}
+
 
 			// Initialize BASS with the specified device (or default)
-			if (!Bass.Init(Bass.DefaultDevice)) {
+			if (!Bass.Init(deviceIdx)) {
 				throw new InvalidOperationException($"Failed to initialize BASS: {Bass.LastError}");
 			}
 
@@ -242,5 +256,15 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 	~BassAudioPlayer()
 	{
 		Dispose();
+	}
+
+	public static void DisplayOutputs()
+	{
+		Console.WriteLine($"BASS output devices ({Bass.DeviceCount})");
+
+		for (var i = 0; i < Bass.DeviceCount; i++ ) {
+			var dev = Bass.GetDeviceInfo(i);
+			Console.WriteLine($"\t{i} [{dev.Name}] - driver: {dev.Driver} type: {dev.Type} default: {dev.IsDefault}");
+		}
 	}
 }
