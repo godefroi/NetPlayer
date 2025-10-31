@@ -4,6 +4,7 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
+  <Project Path="SongServer.Audio/SongServer.Audio.csproj" />
   <Project Path="SongServer.Models/SongServer.Models.csproj" />
   <Project Path="SongServer.Player/SongServer.Player.csproj" />
   <Project Path="SongServer.Ui/SongServer.Ui.csproj" />

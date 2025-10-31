@@ -1,0 +1,68 @@
+using SDL3;
+
+namespace SongServer.Audio.Sdl;
+
+public sealed class SdlAudioDevice : IDisposable
+{
+	private bool _disposed;
+	private uint _deviceId;
+	private SDL.AudioSpec _audioSpec;
+
+	public SdlAudioDevice(SDL.AudioSpec? desiredSpec = null, float gain = 1.0f)
+	{
+		if (desiredSpec == null) {
+			if (!SDL.GetAudioDeviceFormat(SDL.AudioDeviceDefaultPlayback, out var dSpec, out _)) {
+				throw new Exception("Unable to retrieve default audio device format");
+			}
+
+			desiredSpec = dSpec;
+		}
+
+		_deviceId = SDL.OpenAudioDevice(SDL.AudioDeviceDefaultPlayback, desiredSpec.Value);
+
+		if (_deviceId == 0) {
+			throw new Exception($"Unable to open audio device: {SDL.GetError()}");
+		}
+
+		if (!SDL.GetAudioDeviceFormat(_deviceId, out var devSpec, out _)) {
+			SDL.CloseAudioDevice(_deviceId);
+			_deviceId = 0;
+			throw new Exception("Unable to retrieve audio format from device");
+		}
+
+		SDL.SetAudioDeviceGain(_deviceId, gain);
+
+		_audioSpec = devSpec;
+	}
+
+	public SDL.AudioSpec AudioSpec => _disposed ? throw new ObjectDisposedException(nameof(SdlAudioDevice)) : _audioSpec;
+
+	public uint DeviceId => _disposed ? throw new ObjectDisposedException(nameof(SdlAudioDevice)) : _deviceId;
+
+	~SdlAudioDevice() => Dispose(false);
+
+	public void Dispose()
+	{
+		Dispose(true);
+		GC.SuppressFinalize(this);
+	}
+
+	private void Dispose(bool disposing)
+	{
+		if (_disposed) {
+			return;
+		}
+
+		if (disposing) {
+			// TODO: dispose managed state (managed objects)
+		}
+
+		// free unmanaged resources
+		if (_deviceId != 0) {
+			SDL.CloseAudioDevice(_deviceId);
+			_deviceId = 0;
+		}
+
+		_disposed = true;
+	}
+}

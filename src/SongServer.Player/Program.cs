@@ -1,8 +1,11 @@
-﻿using SongServer.Configuration;
+﻿using System.IO.Pipelines;
+using FFmpeg.AutoGen;
+using SDL3;
+using SongServer.Audio.Ffmpeg;
+using SongServer.Configuration;
 using SongServer.Handlers;
 using SongServer.Services;
 using SongServer.Services.Library;
-using SongServer.Services.Mpd;
 using SongServer.Services.Smb;
 
 namespace SongServer;
@@ -14,11 +17,7 @@ internal class Program
 		var builder = WebApplication.CreateBuilder(args);
 
 		builder.Services.Configure<PlayerOptions>(builder.Configuration.GetSection(PlayerOptions.SectionName));
-		// builder.Services.AddTransient(sp => {
-		// 	// I don't really know how else to do this... maybe it crashes?
-		// 	var t = MpdClient.CreateClient(sp.GetRequiredService<ILogger<MpdClient>>());
-		// 	return t.GetAwaiter().GetResult();
-		// });
+
 		builder.Services.AddSingleton<SmbFileClient>();
 		builder.Services.AddSingleton<AudioPlayer, BassAudioPlayer>();
 		builder.Services.AddSingleton<LibraryService>();
@@ -41,6 +40,7 @@ internal class Program
 		builder.Services.AddSignalR();
 
 		var app = builder.Build();
+		var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
 		PlayerHandlers.Map(app);
 		LibraryHandlers.Map(app);
@@ -53,143 +53,96 @@ internal class Program
 			.AllowAnyHeader()
 			.AllowAnyMethod());
 
-		// using (var scope = app.Services.CreateScope()) {
-		// 	var library = scope.ServiceProvider.GetRequiredService<LibraryService>();
 
-		// 	await library.InitializeAsync([
-		// 		@"\\vmhost.local\media\Audio\Soundtracks",
-		// 		@"\\vmhost.local\media\Audio\Singles",
-		// 		@"\\vmhost.local\media\Audio\Full CDs",
-		// 	]);
-		// 	return;
-		// }
+		InitializeSdl();
 
-		// using (var scope = app.Services.CreateScope()) {
-		// 	using var context = scope.ServiceProvider.GetRequiredService<LibraryContext>();
+		using var eventCts = new CancellationTokenSource();
+		var eventTask = HandleSdlEvents(logger, eventCts.Token);
 
-		// 	var playlist = Playlist.Load(context.Playlist.Where(s => s.Song != null).Select(s => s.Song!.Url));
-		// 	var state    = new AudioPlayer.PlaylistState() {
-		// 		Path = "nowhere_in_particular",
-		// 		Hash = playlist.Hash,
-		// 		ShuffleSeed = Random.Shared.Next(),
-		// 	};
+		//await app.RunAsync();
+		using (var scope = app.Services.CreateScope()) {
+			//await TestSdlAudio(scope, logger);
+			await TestFfmpegAudio(scope, logger);
+		}
 
-		// 	if (state.ShuffleSeed != null) {
-		// 		playlist.Shuffle(state.ShuffleSeed.Value);
-		// 	}
+		eventCts.Cancel();
+		await eventTask;
 
-		// 	var player = scope.ServiceProvider.GetRequiredService<AudioPlayer>();
-
-		// 	Console.WriteLine("press a key to set the playlist...");
-		// 	Console.ReadKey(true);
-		// 	player.SetPlaylist(playlist, state);
-
-		// 	Console.WriteLine("press a key to play...");
-		// 	Console.ReadKey(true);
-		// 	player.Play();
-
-		// 	Console.WriteLine("press a key to stop...");
-		// 	Console.ReadKey(true);
-		// 	player.Stop();
-
-		// 	return;
-		// }
-
-		// using (var scope = app.Services.CreateScope()) {
-		// 	var player = scope.ServiceProvider.GetRequiredService<AudioPlayer>();
-		// 	using var context = scope.ServiceProvider.GetRequiredService<LibraryContext>();
-
-		// 	var playlist = Playlist.Load(context.Playlist.Where(s => s.Song != null).Select(s => s.Song!.Url));
-		// 	var state    = new AudioPlayer.PlaylistState() {
-		// 		Path = "nowhere_in_particular",
-		// 		Hash = playlist.Hash,
-		// 		ShuffleSeed = Random.Shared.Next(),
-		// 	};
-
-		// 	if (state.ShuffleSeed != null) {
-		// 		playlist.Shuffle(state.ShuffleSeed.Value);
-		// 	}
-
-		// 	player.SetPlaylist(playlist, state);
-
-		// 	await player.Play();
-		// 	await Task.Delay(TimeSpan.FromSeconds(10));
-		// 	await player.Stop();
-
-		// 	return;
-		// }
-
-
-// 		using (var scope = app.Services.CreateScope()) {
-// 			var library = scope.ServiceProvider.GetRequiredService<LibraryContext>();
-// 			var jl = scope.ServiceProvider.GetRequiredService<JsonLibrary>();
-
-// 			var songs = library.Songs
-// 				.Include(s => s.Source)
-// 				.Select(s => new JsonLibrary.JsonSong() {
-// 					SourcePath   = s.Source!.Path,
-// 					RelativePath = s.RelativePath,
-// 					Artist       = s.Artist,
-// 					Album        = s.Album,
-// 					Title        = s.Title,
-// 					TrackNumber  = s.TrackNumber,
-// 					TrackTotal   = s.TrackTotal,
-// 					Duration     = s.Duration,
-// 					FileModified = s.FileModified,
-// 					FileHash     = s.FileHash,
-// 					FileSize     = s.FileSize,
-// 				});
-// var start = Stopwatch.GetTimestamp();
-// 			await jl.Store(songs);
-// Console.WriteLine($"Stored in {Stopwatch.GetElapsedTime(start)}");
-// start = Stopwatch.GetTimestamp();
-// 			await jl.Store(songs);
-// Console.WriteLine($"Stored in {Stopwatch.GetElapsedTime(start)}");
-// 			return;
-// 		}
-
-		await app.RunAsync();
+		ShutdownSdl(logger);
 	}
 
-	private static async Task DoSomeThings()
+	private static async Task TestSdlAudio(IServiceScope scope, ILogger logger)
+	{
+		using var cts = new CancellationTokenSource();
+		Console.CancelKeyPress += (_, e) => { cts.Cancel(); e.Cancel = true; };
+
+		var inputSpec = new SDL.AudioSpec() {
+			Freq = 44100,
+			Channels = 2,
+			Format = SDL.AudioFormat.AudioS16LE,
+		};
+
+		using var d = new Audio.Sdl.SdlAudioDevice(gain: 0.2f);
+		using var s = new Audio.Sdl.SdlAudioStream(inputSpec, d, scope.ServiceProvider.GetRequiredService<ILogger<Audio.Sdl.SdlAudioStream>>());
+		using var fs = File.OpenRead("output.pcm");
+
+		s.Progress += (_, e) => {
+			logger.LogInformation("Stream position: [{pos}]", e.Position);
+		};
+
+		await s.WritePcmAudio(fs, cts.Token);
+	}
+
+	private static async Task TestFfmpegAudio(IServiceScope scope, ILogger logger)
 	{
 		await Task.CompletedTask;
 
-		//AudioPlayer.DisplayOutputs();
+		// https://blog.gaein.cn/passages/beginner-guide-to-ffmpeg-autogen/
+		ffmpeg.RootPath = @"C:\Users\MarkParker\source\repos\song-server\src\SongServer.Player\_ffmpeg_bin";
 
-		// using var player = new AudioPlayer(pl, new AudioPlayer.PlaylistState() {
-		// 	Path = "my imagination",
-		// 	Hash = pl.Hash,
-		// });
+		using var fsi = File.OpenRead(@"\\vmhost.local\media\Audio\Full CDs\311\311 (30th Anniversary Edition)\01 Down.opus");
+		using var fso = File.Create("pcm_output_frompipe.pcm");
 
-		// Console.WriteLine("Starting playback (10s)...");
-		// player.Play();
-		// await Task.Delay(TimeSpan.FromSeconds(10));
+		AudioConverter.ConvertToPcm(@"\\vmhost.local\media\Audio\Full CDs\311\311 (30th Anniversary Edition)\01 Down.opus", fsi, PipeReader.Create(fsi), PipeWriter.Create(fso));
+	}
 
-		// Console.WriteLine("Stopping playback (5s)...");		
-		// player.Stop();
-		// await Task.Delay(TimeSpan.FromSeconds(5));
+	private static void InitializeSdl()
+	{
+		// we'll handle our own ctrl-c, thank you very much
+		SDL.SetHint(SDL.Hints.NoSignalHandlers, "1");
 
-		// Console.WriteLine("Starting playback (10s)...");
-		// player.Play();
-		// await Task.Delay(TimeSpan.FromSeconds(10));
+		// we need to initialize the SDL audio subsystem (which also initializes the events subsystem)
+		if (!SDL.InitSubSystem(SDL.InitFlags.Audio)) {
+			var err = SDL.GetError();
+			throw new Exception($"Unable to initialize SDL audio subsystem: {err}");
+		}
+	}
 
-		// Console.WriteLine("Pausing playback (5s)...");		
-		// player.Pause();
-		// await Task.Delay(TimeSpan.FromSeconds(5));
+	private static void ShutdownSdl(ILogger logger)
+	{
+		logger.LogInformation("Shutting down SDL...");
+		// shut down the audio subsystem (and events too)
+		SDL.QuitSubSystem(SDL.InitFlags.Audio);
+		SDL.QuitSubSystem(SDL.InitFlags.Events);
+		SDL.Quit();
+		logger.LogInformation("SDL shutdown complete.");
+	}
 
-		// Console.WriteLine("Resuming playback (5s)...");		
-		// player.Play();
-		// await Task.Delay(TimeSpan.FromSeconds(30));
+	private static async Task HandleSdlEvents(ILogger logger, CancellationToken cancellationToken)
+	{
+		while (!cancellationToken.IsCancellationRequested) {
+			try {
+				while (SDL.PollEvent(out var ev)) {
+					// We ain't got no events... we don't need no events. I don't have to show you any stinking events!
+					logger.LogInformation("SDL event of type {event}", (SDL.EventType)ev.Type);
+					// ... but I will...
+				}
 
-		// play through the queue for 5 minutes (so the player will advance through the queue)
-		// player.Play();
-		// await Task.Delay(TimeSpan.FromMinutes(5));
-
-		// await player.Play(new Uri("file://vmhost.local/media/Audio/Full%20CDs/311/311/01%20-%20Down.mp3"));
-		// await Task.Delay(5000);
-		// await player.Play(new Uri("file://vmhost.local/media/Audio/Full%20CDs/Blink%20182/Enema%20Of%20The%20State/08%20-%20All%20the%20Small%20Things.mp3"));
-		// await Task.Delay(5000);
-		// await player.Stop();
+				await Task.Delay(100, cancellationToken);
+			} catch (TaskCanceledException) {
+				// if we were cancelled, we should leave
+				return;
+			}
+		}
 	}
 }
