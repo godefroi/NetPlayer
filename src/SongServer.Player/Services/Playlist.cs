@@ -94,7 +94,7 @@ public class Playlist
 	// 	return new Playlist(entryList, Convert.ToHexStringLower(hasher.GetCurrentHash()));
 	// }
 
-	private static async Task LoadList(string listPath, List<Uri> entries, HashSet<string> visitedFiles, IncrementalHash hasher)
+	private static async Task LoadList(string listPath, int sourceId, List<SongReference> entries, HashSet<string> visitedFiles, IncrementalHash hasher)
 	{
 		if (!visitedFiles.Add(Path.GetFullPath(listPath))) {
 			return;
@@ -112,10 +112,10 @@ public class Playlist
 
 		foreach (var line in lines) {
 			if (_extensions.Contains(Path.GetExtension(line), StringComparer.OrdinalIgnoreCase)) {
-				await LoadList(line, entries, visitedFiles, hasher);
+				await LoadList(line, sourceId, entries, visitedFiles, hasher);
 			} else {
 				hasher.AppendData(MemoryMarshal.AsBytes(line.AsSpan()));
-				entries.Add(ConvertToUri(line));
+				entries.Add(new SongReference(sourceId, line));
 			}
 		}
 	}

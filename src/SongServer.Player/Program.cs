@@ -1,7 +1,7 @@
 ﻿using SongServer.Configuration;
+using SongServer.Data;
 using SongServer.Handlers;
 using SongServer.Services;
-using SongServer.Services.Library;
 using SongServer.Services.Smb;
 
 namespace SongServer;
@@ -18,7 +18,6 @@ internal class Program
 		builder.Services.AddSingleton<SmbFileClient>();
 		builder.Services.AddSingleton<AudioPlayer, BassAudioPlayer>();
 		builder.Services.AddSingleton<LibraryService>();
-		builder.Services.AddSingleton<JsonLibrary>();
 		builder.Services.AddDbContextFactory<LibraryContext>();
 
 		if (args.Length != 0) {

@@ -1,6 +1,4 @@
-using Microsoft.EntityFrameworkCore;
-
-namespace SongServer.Services.Library;
+namespace SongServer.Data;
 
 public class LibraryContext : DbContext
 {

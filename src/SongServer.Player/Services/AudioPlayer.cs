@@ -179,11 +179,9 @@ internal abstract class AudioPlayer(ILogger logger)
 	{
 		public static PlaylistState Empty { get; } = new()
 		{
-			Path = string.Empty,
 			Hash = string.Empty
 		};
 
-		public required string Path { get; init; }
 		public required string Hash { get; init; }
 		public int? ShuffleSeed { get; init; }
 		public int CurrentIndex { get; set; } = -1;

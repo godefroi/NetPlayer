@@ -1,7 +1,4 @@
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-
-namespace SongServer.Services.Library;
+namespace SongServer.Data;
 
 public class Source
 {

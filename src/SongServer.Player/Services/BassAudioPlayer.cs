@@ -4,7 +4,6 @@ using ManagedBass;
 using ManagedBass.Opus;
 using Microsoft.Extensions.Options;
 using SongServer.Configuration;
-using SongServer.Services.Library;
 
 namespace SongServer.Services;
 

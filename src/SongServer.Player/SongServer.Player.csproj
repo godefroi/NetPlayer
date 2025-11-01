@@ -18,12 +18,10 @@
     <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.2.0" />
     <PackageReference Include="SMBLibrary" Version="1.5.4.1" />
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.9" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.9" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.9" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SongServer.Data\SongServer.Data.csproj" />
     <ProjectReference Include="..\SongServer.Models\SongServer.Models.csproj" />
   </ItemGroup>
 

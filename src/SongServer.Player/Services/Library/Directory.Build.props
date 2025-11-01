@@ -1,6 +1,0 @@
-<Project>
-    <ItemGroup>
-        <Using Include="Microsoft.EntityFrameworkCore" />
-        <Using Include="Microsoft.EntityFrameworkCore.Metadata.Builders" />
-    </ItemGroup>
-</Project>

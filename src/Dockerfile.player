@@ -24,14 +24,18 @@ RUN dotnet publish "SongServer.Player/SongServer.Player.csproj" -c Release -o /a
 FROM mcr.microsoft.com/dotnet/aspnet:9.0
 WORKDIR /app
 
-# Install runtime dependencies for audio processing (LibVLC)
-# RUN apt-get update && apt-get install -y \
-# #    vlc-plugin-base \
-# #    vlc-plugin-video-output \
-# #    libvlc5 \
-# 	libvlc-dev vlc \
-# 	&& rm -rf /var/lib/apt/lists/*
+# Install any runtime dependencies
+# Download and install the BASS libraries
+RUN apt-get update && apt-get install -y wget unzip alsa-lib alsa-utils && \
+	wget -O /tmp/bass24.zip https://www.un4seen.com/files/bass24-linux.zip && \
+	unzip -j /tmp/bass24.zip libs/aarch64/libbass.so -d /usr/local/lib && \
+	wget -O /tmp/bassopus24.zip https://www.un4seen.com/files/bassopus24-linux.zip && \
+	unzip -j /tmp/bassopus24.zip libs/aarch64/libbassopus.so -d /usr/local/lib && \
+	ldconfig && \
+	rm -f /tmp/bass*.zip && \
+	apt-get remove -y wget unzip && apt-get clean
 
+# Copy the build artifacts
 COPY --from=publish /app/publish .
 
 # Default port for ASP.NET Core
