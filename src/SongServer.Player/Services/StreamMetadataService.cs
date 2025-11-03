@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SongServer.Configuration;
@@ -95,6 +96,10 @@ public class StreamMetadataService : IHostedService, IDisposable
 				_logger.LogInformation("Now playing: [{title}] by {artist} ({album})", title, artist, album);
 				_lastStart = start;
 			}
+		} catch (DbUpdateException e) when (e.InnerException is SqliteException se && se.SqliteErrorCode == 19 && se.SqliteExtendedErrorCode == 2067) {
+			_logger.LogInformation("Metadata already recorded for this start time");
+		} catch (DbUpdateException e) when (e.InnerException is SqliteException se) {
+			_logger.LogError(se, "SQLite error code {eCode}, extended error code {seCode}", se.SqliteErrorCode, se.SqliteExtendedErrorCode);
 		} catch (Exception e) {
 			_logger.LogWarning(e, "Failed to store stream metadata response.");
 		}
