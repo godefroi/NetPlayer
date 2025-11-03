@@ -1,4 +1,5 @@
-﻿using SongServer.Configuration;
+﻿using Microsoft.EntityFrameworkCore;
+using SongServer.Configuration;
 using SongServer.Data;
 using SongServer.Handlers;
 using SongServer.Services;
@@ -146,7 +147,30 @@ internal class Program
 // 			return;
 // 		}
 
+		await ExecutePendingMigrations(app.Services);
+
 		await app.RunAsync();
+	}
+
+	private static async Task ExecutePendingMigrations(IServiceProvider serviceProvider, CancellationToken cancellationToken = default)
+	{
+		using var scope = serviceProvider.CreateScope();
+
+		var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+		var context = scope.ServiceProvider.GetRequiredService<LibraryContext>();
+
+		var migrations = (await context.Database.GetPendingMigrationsAsync(cancellationToken)).ToList();
+
+		if (migrations.Count == 0) {
+			logger.LogInformation("No pending migrations.");
+			return;
+		}
+
+		foreach (var migration in migrations) {
+			logger.LogInformation("Pending migration: {migration}", migration);
+		}
+
+		await context.Database.MigrateAsync(cancellationToken);
 	}
 
 	private static async Task DoSomeThings()

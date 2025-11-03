@@ -1,3 +1,5 @@
+using Microsoft.Data.Sqlite;
+
 namespace SongServer.Data;
 
 public class LibraryContext : DbContext
@@ -9,6 +11,8 @@ public class LibraryContext : DbContext
 	public DbSet<PlaylistFile> Playlist { get; set; }
 
 	public DbSet<StreamMetadata> StreamMetadata { get; set; }
+
+	public DbSet<State> State { get; set; }
 
 	protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
 	{
@@ -24,4 +28,10 @@ public class LibraryContext : DbContext
 		modelBuilder
 			.ApplyConfigurationsFromAssembly(typeof(LibraryContext).Assembly);
 	}
+
+	// public void Backup()
+	// {
+	// 	var conn = Database.GetDbConnection() as SqliteConnection;
+	// 	conn.BackupDatabase()
+	// }
 }

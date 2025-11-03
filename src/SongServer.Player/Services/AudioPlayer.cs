@@ -77,6 +77,8 @@ internal abstract class AudioPlayer(ILogger logger)
 		}
 	}
 
+	public PlaylistState GetPlaylistState() => _state;
+
 	public (State State, SongMetadata? Song, TimeSpan? Position) GetState()
 	{
 		lock (_stateLock) {

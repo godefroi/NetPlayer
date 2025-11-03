@@ -23,13 +23,14 @@ internal class AudioPlayerService(AudioPlayer player, IDbContextFactory<LibraryC
 
 		var playlist = new Playlist(playlistSongs);
 
-		// here's where we'd load our playlist state if we had previously saved
-		// it... we'd verify the hash to ensure it was for the right playlist
-		// otherwise, we can just make a new one for the new playlist
-		var state = new AudioPlayer.PlaylistState() {
-			Hash        = playlist.Hash,
-			ShuffleSeed = Random.Shared.Next(),
-		};
+		var state = await context.State.GetState<AudioPlayer.PlaylistState>("playlist_state", cancellationToken);
+
+		if (state == null || state.Hash != playlist.Hash) {
+			state = new AudioPlayer.PlaylistState() {
+				Hash        = playlist.Hash,
+				ShuffleSeed = Random.Shared.Next(),
+			};
+		}
 
 		_logger.LogInformation("Loaded {count} entries from playlist.", playlist.Entries.Count);
 
@@ -45,7 +46,9 @@ internal class AudioPlayerService(AudioPlayer player, IDbContextFactory<LibraryC
 	{
 		await _player.Stop();
 
-		// here is where we'd save the playlist state for
-		// our next startup
+		using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+		await context.State.SetState("playlist_state", _player.GetPlaylistState(), cancellationToken);
+		await context.SaveChangesAsync(cancellationToken);
 	}
 }

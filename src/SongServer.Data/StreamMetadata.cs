@@ -62,5 +62,7 @@ public class StreamMetadataConfiguration : IEntityTypeConfiguration<StreamMetada
 
 		builder.HasIndex(e => e.StartTime)
 			.IsUnique();
+
+		builder.HasIndex(e => new { e.Artist, e.Album, e.Title });
 	}
 }
