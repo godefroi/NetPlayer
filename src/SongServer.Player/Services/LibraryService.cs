@@ -2,8 +2,9 @@ using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
+using SongServer.Data;
 
-namespace SongServer.Services.Library;
+namespace SongServer.Services;
 
 public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, ILogger<LibraryService>? logger = null) : IDisposable
 {

@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SongServer.Configuration;
-using SongServer.Services.Library;
+using SongServer.Data;
 
 namespace SongServer.Services;
 
@@ -16,27 +16,39 @@ internal class AudioPlayerService(AudioPlayer player, IDbContextFactory<LibraryC
 	{
 		using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
-		var playlist = new Playlist(context.Playlist.AsNoTracking().AsEnumerable().Select(s => new SongReference(s.SourceId, s.RelativePath)));
-		// var playlist = new Playlist([
-		// 	new SongReference(3, @"311\Evolver\01 - Creatures (For A While).mp3"),
-		// 	new SongReference(3, @"Space\Spiders\01 Neighbourhood.m4a"),
-		// 	new SongReference(3, @"Metal X-Mas 2CD Special Edition\101 - Jeff Scott Soto, Bruce Kulick, Bob Kulick, Chris Wyse, Ray Luzier - We Wish You A Merry Xmas.flac"),
-		// 	new SongReference(3, @"311\311 (30th Anniversary Edition)\01 Down.opus"),
-		// ]);
-		var state    = new AudioPlayer.PlaylistState() {
-			Path = "nowhere_in_particular",
-			Hash = playlist.Hash,
-			ShuffleSeed = 12345,//Random.Shared.Next(),
-		};
+		var playlistSongs = context.Playlist
+			.AsNoTracking()
+			.AsEnumerable()
+			.Select(s => new SongReference(s.SourceId, s.RelativePath));
+
+		var playlist = new Playlist(playlistSongs);
+
+		var state = await context.State.GetState<AudioPlayer.PlaylistState>("playlist_state", cancellationToken);
+
+		if (state == null || state.Hash != playlist.Hash) {
+			state = new AudioPlayer.PlaylistState() {
+				Hash        = playlist.Hash,
+				ShuffleSeed = Random.Shared.Next(),
+			};
+		}
+
+		_logger.LogInformation("Loaded {count} entries from playlist.", playlist.Entries.Count);
 
 		if (state.ShuffleSeed != null) {
 			playlist.Shuffle(state.ShuffleSeed.Value);
+			_logger.LogInformation("Shuffled playlist with seed {seed}.", state.ShuffleSeed);
 		}
-
-		_logger.LogInformation("Loading {count} entries from playlist.", playlist.Entries.Count);
 
 		_player.SetPlaylist(playlist, state);
 	}
 
-	public Task StopAsync(CancellationToken cancellationToken) => _player.Stop();
+	public async Task StopAsync(CancellationToken cancellationToken)
+	{
+		await _player.Stop();
+
+		using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+		await context.State.SetState("playlist_state", _player.GetPlaylistState(), cancellationToken);
+		await context.SaveChangesAsync(cancellationToken);
+	}
 }

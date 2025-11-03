@@ -3,9 +3,10 @@ using FFmpeg.AutoGen;
 using SDL3;
 using SongServer.Audio.Ffmpeg;
 using SongServer.Configuration;
+using Microsoft.EntityFrameworkCore;
+using SongServer.Data;
 using SongServer.Handlers;
 using SongServer.Services;
-using SongServer.Services.Library;
 using SongServer.Services.Smb;
 
 namespace SongServer;
@@ -17,23 +18,26 @@ internal class Program
 		var builder = WebApplication.CreateBuilder(args);
 
 		builder.Services.Configure<PlayerOptions>(builder.Configuration.GetSection(PlayerOptions.SectionName));
+		builder.Services.Configure<StreamMetadataOptions>(builder.Configuration.GetSection(StreamMetadataOptions.SectionName));
 
 		builder.Services.AddSingleton<SmbFileClient>();
 		builder.Services.AddSingleton<AudioPlayer, BassAudioPlayer>();
 		builder.Services.AddSingleton<LibraryService>();
-		builder.Services.AddSingleton<JsonLibrary>();
 		builder.Services.AddDbContextFactory<LibraryContext>();
 
-		// if (args.Length != 0) {
-		// 	switch (args[0]) {
-		// 		case "showoutput":
-		// 			VlcAudioPlayer.DisplayOutputs();
-		// 			return;
-		// 	}
-		// }
+		if (args.Length != 0) {
+			switch (args[0]) {
+				case "showoutputs":
+					BassAudioPlayer.DisplayOutputs();
+					return;
+			}
+		}
 
 		builder.Services.AddHostedService<AudioPlayerService>();
 		builder.Services.AddHostedService<PlayerHubBroadcaster>();
+		if (builder.Configuration.GetSection(StreamMetadataOptions.SectionName).Exists()) {
+			builder.Services.AddHostedService<StreamMetadataService>();
+		}
 
 		builder.Services.AddCors();
 
@@ -69,6 +73,10 @@ internal class Program
 		await eventTask;
 
 		ShutdownSdl(logger);
+
+		await ExecutePendingMigrations(app.Services);
+
+		await app.RunAsync();
 	}
 
 	private static async Task TestSdlAudio(IServiceScope scope, ILogger logger)
@@ -91,6 +99,27 @@ internal class Program
 		};
 
 		await s.WritePcmAudio(fs, cts.Token);
+	}
+
+	private static async Task ExecutePendingMigrations(IServiceProvider serviceProvider, CancellationToken cancellationToken = default)
+	{
+		using var scope = serviceProvider.CreateScope();
+
+		var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+		var context = scope.ServiceProvider.GetRequiredService<LibraryContext>();
+
+		var migrations = (await context.Database.GetPendingMigrationsAsync(cancellationToken)).ToList();
+
+		if (migrations.Count == 0) {
+			logger.LogInformation("No pending migrations.");
+			return;
+		}
+
+		foreach (var migration in migrations) {
+			logger.LogInformation("Pending migration: {migration}", migration);
+		}
+
+		await context.Database.MigrateAsync(cancellationToken);
 	}
 
 	private static async Task TestFfmpegAudio(IServiceScope scope, ILogger logger)

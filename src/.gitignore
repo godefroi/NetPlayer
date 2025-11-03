@@ -1,3 +1,5 @@
 bass.dll
 bassopus.dll
 output.pcm
+_ffmpeg_bin
+*.pcm
