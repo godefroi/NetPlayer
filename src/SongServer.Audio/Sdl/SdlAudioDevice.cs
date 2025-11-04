@@ -65,4 +65,13 @@ public sealed class SdlAudioDevice : IDisposable
 
 		_disposed = true;
 	}
+
+	public static SDL.AudioSpec GetDeviceAudioSpec(uint deviceId = SDL.AudioDeviceDefaultPlayback)
+	{
+		if (!SDL.GetAudioDeviceFormat(deviceId, out var dSpec, out _)) {
+			throw new Exception("Unable to retrieve default audio device format");
+		}
+
+		return dSpec;
+	}
 }

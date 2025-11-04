@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using FFmpeg.AutoGen;
 
-namespace SongServer.Audio.Ffmpeg;
+namespace SongServer.Audio.FFmpeg;
 
 public unsafe class FFmpegException(string message, int errorCode) : Exception(FormatMessage(message, errorCode))
 {

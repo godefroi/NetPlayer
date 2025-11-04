@@ -46,13 +46,6 @@ public sealed class SdlAudioStream : IDisposable
 
 	~SdlAudioStream() => Dispose(false);
 
-	public async Task DoPipelineThings(System.IO.Pipelines.Pipe pipe)
-	{
-		var p = new System.IO.Pipelines.Pipe(new System.IO.Pipelines.PipeOptions());
-		//pipe.Reader.ReadAsync()
-		await Task.CompletedTask;
-	}
-
 	public async Task WritePcmAudio(Stream pcmStream, CancellationToken cancellationToken = default)
 	{
 		try {

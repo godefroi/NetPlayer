@@ -1,13 +1,15 @@
 ﻿using System.IO.Pipelines;
 using FFmpeg.AutoGen;
 using SDL3;
-using SongServer.Audio.Ffmpeg;
+using SongServer.Audio.FFmpeg;
 using SongServer.Configuration;
 using Microsoft.EntityFrameworkCore;
 using SongServer.Data;
 using SongServer.Handlers;
 using SongServer.Services;
 using SongServer.Services.Smb;
+using SongServer.Audio.Sdl;
+using SongServer.Audio;
 
 namespace SongServer;
 
@@ -57,8 +59,9 @@ internal class Program
 			.AllowAnyHeader()
 			.AllowAnyMethod());
 
-
 		InitializeSdl();
+
+		FFmpegSystem.Initialize(app.Services.GetRequiredService<ILogger<FFmpegSystem>>());
 
 		using var eventCts = new CancellationTokenSource();
 		var eventTask = HandleSdlEvents(logger, eventCts.Token);
@@ -67,6 +70,7 @@ internal class Program
 		using (var scope = app.Services.CreateScope()) {
 			//await TestSdlAudio(scope, logger);
 			await TestFfmpegAudio(scope, logger);
+			//await CheckAllAudioFormats(scope, logger);
 		}
 
 		eventCts.Cancel();
@@ -76,7 +80,7 @@ internal class Program
 
 		await ExecutePendingMigrations(app.Services);
 
-		await app.RunAsync();
+		//await app.RunAsync();
 	}
 
 	private static async Task TestSdlAudio(IServiceScope scope, ILogger logger)
@@ -126,13 +130,65 @@ internal class Program
 	{
 		await Task.CompletedTask;
 
-		// https://blog.gaein.cn/passages/beginner-guide-to-ffmpeg-autogen/
-		ffmpeg.RootPath = @"C:\Users\MarkParker\source\repos\song-server\src\SongServer.Player\_ffmpeg_bin";
+		#pragma warning disable CS0219
+		var fn_1ch = @"\\vmhost.local\media\Audio\Singles\OPM\OPM - Heaven is a Halfpipe.mp3";
+		var fn_fple48k = @"\\vmhost.local\media\Audio\Soundtracks\Descent II\02-Title.opus";
+		var fn_fple44k = @"\\vmhost.local\media\Audio\Soundtracks\Romeo and Juliet\01 - Garbage - #1 Crush.mp3";
+		var fn_s16le = @"\\vmhost.local\media\Audio\Full CDs\Metal X-Mas 2CD Special Edition\101 - Jeff Scott Soto, Bruce Kulick, Bob Kulick, Chris Wyse, Ray Luzier - We Wish You A Merry Xmas.flac";
+		var fn_fple22k = @"\\vmhost.local\media\Audio\Full CDs\Incubus\Make Yourself\08 - Drive.mp3";
+		#pragma warning restore CS0219
 
-		using var fsi = File.OpenRead(@"\\vmhost.local\media\Audio\Full CDs\311\311 (30th Anniversary Edition)\01 Down.opus");
-		using var fso = File.Create("pcm_output_frompipe.pcm");
+		using var fsi = File.OpenRead(fn_fple22k);
+		using var conv = new AudioConverter(fsi, scope.ServiceProvider.GetRequiredService<ILogger<AudioConverter>>());
 
-		AudioConverter.ConvertToPcm(@"\\vmhost.local\media\Audio\Full CDs\311\311 (30th Anniversary Edition)\01 Down.opus", fsi, PipeReader.Create(fsi), PipeWriter.Create(fso));
+		//Console.WriteLine($"stream #{conv.StreamIndex}");
+		//Console.WriteLine($"Input spec: {conv.InputSpec}");
+
+		using var sad = new SdlAudioDevice();
+		var devSpec = SdlAudioDevice.GetDeviceAudioSpec();
+
+		//Console.WriteLine($"device native spec: format = {devSpec.Format}, channels = {devSpec.Channels}, frequency = {devSpec.Freq}");
+
+		using var sao = new SdlAudioOutputStream(devSpec, sad, scope.ServiceProvider.GetRequiredService<ILogger<SdlAudioOutputStream>>());
+
+		conv.ConvertStream(sao, MakeResamplerSpec(devSpec));
+
+		Console.WriteLine("Writing finished, waiting for remaining playtime...");
+		await sao.WaitForFinish();
+
+		static PcmAudioSpec MakeResamplerSpec(SDL.AudioSpec sdlSpec) => new(
+			sdlSpec.Format.AsFormat(),
+			sdlSpec.Channels,
+			sdlSpec.Freq
+		);
+	}
+
+	private static async Task CheckAllAudioFormats(IServiceScope scope, ILogger logger)
+	{
+		await Task.CompletedTask;
+
+		var formats = new Dictionary<string, int>();
+		
+		using var context = scope.ServiceProvider.GetRequiredService<LibraryContext>();
+
+		foreach (var s in context.Songs) {
+			using var fsi = File.OpenRead(Path.Join(s.SourcePath, s.RelativePath));
+			using var conv = new AudioConverter(fsi, scope.ServiceProvider.GetRequiredService<ILogger<AudioConverter>>());
+			var spec = $"{conv.InputSpec.Format} {conv.InputSpec.Channels}ch {conv.InputSpec.SampleFrequency}";
+			if (spec == "FloatPlanarLE 1ch 44100") {
+				Console.WriteLine($"mono: {fsi.Name}");
+			}
+			if (formats.TryGetValue(spec, out var val)) {
+				formats[spec] = val + 1;
+			} else {
+				Console.WriteLine($"New format {spec} in song {fsi.Name}");
+				formats.Add(spec, 1);
+			}
+		}
+
+		foreach (var (spec, cnt) in formats) {
+			Console.WriteLine($"{cnt,-4} -> {spec}");
+		}
 	}
 
 	private static void InitializeSdl()

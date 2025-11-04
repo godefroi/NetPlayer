@@ -1,179 +1,123 @@
-using System.Buffers;
-using System.IO.Pipelines;
 using System.Runtime.InteropServices;
 using FFmpeg.AutoGen;
+using Microsoft.Extensions.Logging;
 
-namespace SongServer.Audio.Ffmpeg;
+namespace SongServer.Audio.FFmpeg;
 
-public unsafe class AudioConverter(Stream inputStream)
+public unsafe class AudioConverter : IDisposable
 {
-	private readonly Stream _inputStream = inputStream;
+	private const int _bufferLength = 1024 * 128;
 
-	private class AudioReader(Stream stream)
+	private readonly Stream _inputStream;
+	private readonly ILogger _logger;
+	private readonly avio_alloc_context_read_packet _readStream;
+	private readonly avio_alloc_context_seek _seekStream;
+	private bool _disposed = false;
+
+	private AVFormatContext* _formatContext = null;
+	private byte* _mallocBuffer = null;
+	private AVIOContext* _ioContext = null;
+
+	public AudioConverter(Stream inputStream, ILogger<AudioConverter> logger)
 	{
-		private readonly Stream _stream = stream;
-		private readonly PipeReader _reader = PipeReader.Create(Stream.Null);
-
-		public int Read(void* opaque, byte* buf, int buf_size)
-		{
-			if (!_stream.CanRead) {
-				return ffmpeg.AVERROR_UNKNOWN;
-			}
-
-			try {
-				var buffer  = new Span<byte>(buf, buf_size);
-				var readCnt = _stream.Read(buffer);
-
-				return readCnt;
-			} catch (Exception ex) {
-				Console.WriteLine($"Error reading from stream: {ex.Message}");
-				return ffmpeg.AVERROR_UNKNOWN;
-			}
-		}
-
-		public int ReadPipe(void* opaque, byte* buf, int buf_size)
-		{
-			if (!_reader.TryRead(out var result)) {
-				return 0;
-			}
-
-			var buffer  = new Span<byte>(buf, buf_size);
-			var readCnt = (int)Math.Min(buf_size, result.Buffer.Length);
-
-			result.Buffer.Slice(0, readCnt).CopyTo(buffer);
-
-			return readCnt;
-		}
-
-		public long Seek(void* opaque, long offset, int whence)
-		{
-			//Console.WriteLine($"SEEK -> offset {offset}, whence {whence}");
-
-			const int SEEK_SET = 0x0;
-			const int SEEK_CUR = 0x01;
-			const int SEEK_END = 0x02;
-
-			try {
-				return whence switch {
-					ffmpeg.AVSEEK_SIZE => _stream.Length,
-					SEEK_SET => _stream.Seek(offset, SeekOrigin.Begin),
-					SEEK_CUR => _stream.Seek(offset, SeekOrigin.Current),
-					SEEK_END => _stream.Seek(offset, SeekOrigin.End),
-					_ => ffmpeg.AVERROR_BUG,
-				};
-			} catch (Exception e) {
-				Console.WriteLine($"Exception during seek (offset {offset} whence {whence}): {e.Message}");
-				return ffmpeg.AVERROR_UNKNOWN;
-			}
-		}
-	}
-
-	public static void ConvertToPcm(string inputPath, Stream inputStream, PipeReader inputReader, PipeWriter outputWriter)
-	{
-		const int bufferLength = 1024 * 128;
-
-		var reader = new AudioReader(inputStream);
-		var readerHandle = GCHandle.Alloc(inputReader);
-		var audioStreamIndex = -1;
 		var result = 0;
 
-		AVFormatContext* formatContext = null;
-		byte* mallocBuffer = null;
-		AVIOContext* ioContext = null;
+		_inputStream  = inputStream;
+		_logger       = logger;
+		_readStream   = new(ReadFromStream);
+		_seekStream   = new(SeekInStream);
 
-		try {
-			if ((formatContext = ffmpeg.avformat_alloc_context()) == null) {
-				throw new Exception("Unable to allocate AVFormatContext");
-			}
+		if ((_formatContext = ffmpeg.avformat_alloc_context()) == null) {
+			throw new Exception("Unable to allocate AVFormatContext");
+		}
 
-			if ((mallocBuffer = (byte*)ffmpeg.av_malloc(bufferLength)) == null) {
-				throw new Exception("Unable to allocate IO buffer");
-			}
+		if ((_mallocBuffer = (byte*)ffmpeg.av_malloc(_bufferLength)) == null) {
+			throw new Exception("Unable to allocate IO buffer");
+		}
 
-			// we could use the "opaque" pointer if we wanted to, calling GCHandle.Alloc on
-			// whatever object we want to be passed around, then using GCHandle.ToIntPtr()
-			// and casting to void*. To dereference, we would use GCHandle.FromIntPtr()
-			// to get the GCHandle back, then cast the .Target to whatever it started as.
+		_ioContext = ffmpeg.avio_alloc_context(
+			_mallocBuffer,
+			_bufferLength,
+			0,
+			null,
+			_readStream,
+			null,
+			_inputStream.CanSeek ? _seekStream : null);
 
-			ioContext = ffmpeg.avio_alloc_context(
-				mallocBuffer,
-				bufferLength,
-				0,
-				null,
-				new avio_alloc_context_read_packet(reader.Read),
-				null,
-				inputStream.CanSeek ? new avio_alloc_context_seek(reader.Seek) : null);
+		if (_ioContext == null) {
+			throw new Exception("Unable to allocate IO context");
+		}
 
-			if (ioContext == null) {
-				throw new Exception("Unable to allocate IO context");
-			}
+		// for some reason, if we tell ffmpeg that the stream is seekable, then
+		// things go badly for us... but if we don't, it seeks anyway, and it works...
+		//ioContext->seekable = inputStream.CanSeek ? ffmpeg.AVIO_SEEKABLE_NORMAL : 0;
 
-			// for some reason, if we tell ffmpeg that the stream is seekable, then
-			// things go badly for us... but if we don't, it seeks anyway, and it works...
-			//ioContext->seekable = inputStream.CanSeek ? ffmpeg.AVIO_SEEKABLE_NORMAL : 0;
+		// tell the formatContext that we'll be handling our own I/O
+		// we also pass null to avformat_open_input below
+		_formatContext->pb = _ioContext;
 
-			// tell the formatContext that we'll be handling our own I/O
-			// we also pass null to avformat_open_input below
-			formatContext->pb = ioContext;
-
-			// open the input
-			if ((result = ffmpeg.avformat_open_input(&formatContext, null, null, null)) < 0) {
+		// open the input
+		fixed (AVFormatContext** ptr = &_formatContext) {
+			if ((result = ffmpeg.avformat_open_input(ptr, null, null, null)) < 0) {
 				throw new FFmpegException("Could not open input file", result);
 			}
-
-			// read enough to figure out what's in the data
-			if ((result = ffmpeg.avformat_find_stream_info(formatContext, null)) < 0) {
-				throw new FFmpegException("Could not find stream info", result);
-			}
-
-			LogInputFormatInformation(formatContext);
-
-			// find an audio stream
-			for (var i = 0; i < formatContext->nb_streams; i++) {
-				if (formatContext->streams[i]->codecpar->codec_type == AVMediaType.AVMEDIA_TYPE_AUDIO) {
-					audioStreamIndex = i;
-					break;
-				}
-			}
-
-			// make sure we found an audio stream
-			if (audioStreamIndex == -1) {
-				throw new InvalidOperationException("No audio stream found");
-			}
-
-			Console.WriteLine($"Converting stream at index {audioStreamIndex}");
-
-			ConvertStream(formatContext, audioStreamIndex, outputWriter);
-		} finally {
-			if (formatContext != null) {
-				ffmpeg.avformat_close_input(&formatContext);
-			}
-
-			if (ioContext != null) {
-				ffmpeg.avio_context_free(&ioContext);
-			}
-
-			if (mallocBuffer != null) {
-				ffmpeg.av_free(&mallocBuffer);
-			}
-
-			readerHandle.Free();
 		}
+
+		// read enough to figure out what's in the data
+		if ((result = ffmpeg.avformat_find_stream_info(_formatContext, null)) < 0) {
+			throw new FFmpegException("Could not find stream info", result);
+		}
+
+		var audioStreamIndex = -1;
+
+		//LogInputFormatInformation(_formatContext);
+
+		// find an audio stream
+		for (var i = 0; i < _formatContext->nb_streams; i++) {
+			if (_formatContext->streams[i]->codecpar->codec_type == AVMediaType.AVMEDIA_TYPE_AUDIO) {
+				audioStreamIndex = i;
+				break;
+			}
+		}
+
+		// make sure we found an audio stream
+		if (audioStreamIndex == -1) {
+			throw new InvalidOperationException("No audio stream found");
+		}
+
+		//Console.WriteLine($"Converting stream at index {audioStreamIndex}");
+
+		StreamIndex = audioStreamIndex;
+		InputSpec   = GetAudioSpec(_formatContext->streams[StreamIndex]->codecpar);
 	}
 
-	private static void ConvertStream(AVFormatContext* formatContext, int audioStreamIndex, PipeWriter writer)
+	~AudioConverter() => Dispose(disposing: false);
+
+	public int StreamIndex { get; private set; }
+
+	public PcmAudioSpec InputSpec { get; private set; }
+
+	public void ConvertStream(Stream outputStream, PcmAudioSpec outputSpec)
 	{
-		var codecParams  = formatContext->streams[audioStreamIndex]->codecpar;
+		var codecParams  = _formatContext->streams[StreamIndex]->codecpar;
 		var codec        = ffmpeg.avcodec_find_decoder(codecParams->codec_id);
 		var codecContext = ffmpeg.avcodec_alloc_context3(codec);
 		var result       = 0;
+		var outputFormat = outputSpec.Format.AsAVSampleFormat();
+		var outputLayout = &codecContext->ch_layout;
 
-		LogCodecParameters(codec, codecParams);
+		if (outputLayout->nb_channels != outputSpec.Channels) {
+			AVChannelLayout newLayout = default;
+			ffmpeg.av_channel_layout_default(&newLayout, 2);
+			outputLayout = &newLayout;
+		}
+
+		//LogCodecParameters(codec, codecParams);
 
 		SwrContext* swrContext = null;
 		AVPacket* packet = null;
-		AVFrame* frame = null;
-		AVFrame* pcmFrame = null;
+		AVFrame* decodedFrame = null;
+		AVFrame* resampledFrame = null;
 
 		if (codecContext == null) {
 			throw new FFmpegException("Unable to allocate codec context", ffmpeg.AVERROR_UNKNOWN);
@@ -188,15 +132,24 @@ public unsafe class AudioConverter(Stream inputStream)
 				throw new FFmpegException("Failed to open AV codec", result);
 			}
 
+			_logger.LogInformation(
+				"Initializing resampler with input spec [format {inFmt} channels {inChan} rate {inRate}] output spec [format {outFmt} channels {outChan} rate {outRate}]",
+				 codecContext->sample_fmt,
+				 codecContext->ch_layout.nb_channels,
+				 codecContext->sample_rate,
+				 outputFormat,
+				 outputLayout->nb_channels,
+				 outputSpec.SampleFrequency);
+
 			// setup resampler for PCM conversion
 			result = ffmpeg.swr_alloc_set_opts2(
 				&swrContext,
-				&codecContext->ch_layout,
-				AVSampleFormat.AV_SAMPLE_FMT_S16, // PCM 16-bit
-				codecContext->sample_rate,
-				&codecContext->ch_layout,
-				codecContext->sample_fmt,
-				codecContext->sample_rate,
+				outputLayout,               // out channel layout (was &codecContext->ch_layout)
+				outputFormat,               // out sample format (was AVSampleFormat.AV_SAMPLE_FMT_S16, // PCM 16-bit)
+				outputSpec.SampleFrequency, // out sample rate (was codecContext->sample_rate)
+				&codecContext->ch_layout,   // in channel layout
+				codecContext->sample_fmt,   // in sample format
+				codecContext->sample_rate,  // in sample rate
 				0,
 				null);
 
@@ -212,18 +165,18 @@ public unsafe class AudioConverter(Stream inputStream)
 				throw new FFmpegException("Failed to allocate AV packet", ffmpeg.AVERROR_UNKNOWN);
 			}
 
-			if ((frame = ffmpeg.av_frame_alloc()) == null) {
+			if ((decodedFrame = ffmpeg.av_frame_alloc()) == null) {
 				throw new FFmpegException("Failed to allocate input frame", ffmpeg.AVERROR_UNKNOWN);
 			}
 
-			if ((pcmFrame = ffmpeg.av_frame_alloc()) == null) {
+			if ((resampledFrame = ffmpeg.av_frame_alloc()) == null) {
 				throw new FFmpegException("Failed to allocate output frame", ffmpeg.AVERROR_UNKNOWN);
 			}
 
 			// read packets from avformat (these are packets in the source format)
-			while (ffmpeg.av_read_frame(formatContext, packet) >= 0) {
+			while (ffmpeg.av_read_frame(_formatContext, packet) >= 0) {
 				// skip packets for streams we're not interested in
-				if (packet->stream_index != audioStreamIndex) {
+				if (packet->stream_index != StreamIndex) {
 					continue;
 				}
 
@@ -231,42 +184,38 @@ public unsafe class AudioConverter(Stream inputStream)
 				ffmpeg.avcodec_send_packet(codecContext, packet);
 
 				// receive decoded frames from the codec
-				while (ffmpeg.avcodec_receive_frame(codecContext, frame) >= 0) {
+				while (ffmpeg.avcodec_receive_frame(codecContext, decodedFrame) >= 0) {
 					// Convert to PCM
-					pcmFrame->ch_layout   = frame->ch_layout;
-					pcmFrame->sample_rate = frame->sample_rate;
-					pcmFrame->format      = (int)AVSampleFormat.AV_SAMPLE_FMT_S16;
+					resampledFrame->ch_layout   = *outputLayout;
+					resampledFrame->sample_rate = outputSpec.SampleFrequency; // was frame->sample_rate;
+					resampledFrame->format      = (int)outputFormat; // was (int)AVSampleFormat.AV_SAMPLE_FMT_S16;
 	
-					ffmpeg.swr_convert_frame(swrContext, pcmFrame, frame);
+					ffmpeg.swr_convert_frame(swrContext, resampledFrame, decodedFrame);
 
 					// figure out how much data we're dealing with
-					var dataSize = ffmpeg.av_samples_get_buffer_size(null, codecContext->ch_layout.nb_channels, pcmFrame->nb_samples, (AVSampleFormat)pcmFrame->format, 1);
+					var dataSize = ffmpeg.av_samples_get_buffer_size(null, outputLayout->nb_channels, resampledFrame->nb_samples, (AVSampleFormat)resampledFrame->format, 1);
 
-					// create spans for our source and destination
-					var sourceSpan = new Span<byte>(pcmFrame->data[0], dataSize);
-					var outputSpan = writer.GetSpan(dataSize);
+					// create a span for our source
+					var sourceSpan = new Span<byte>(resampledFrame->data[0], dataSize);
 
-					// copy data from the output frame to outputSpan
-					sourceSpan.CopyTo(outputSpan);
-
-					// advance the pipewriter
-					writer.Advance(dataSize);
+					// write it to the output stream
+					outputStream.Write(sourceSpan);
 
 					// clean up the decoded/converted frame
-					ffmpeg.av_frame_unref(pcmFrame);
+					ffmpeg.av_frame_unref(resampledFrame);
 				}
 
 				ffmpeg.av_packet_unref(packet);
 			}
 		} finally {
-			writer.Complete();
+			outputStream.Flush();
 
-			if (frame != null) {
-				ffmpeg.av_frame_free(&frame);
+			if (decodedFrame != null) {
+				ffmpeg.av_frame_free(&decodedFrame);
 			}
 
-			if (pcmFrame != null) {
-				ffmpeg.av_frame_free(&pcmFrame);
+			if (resampledFrame != null) {
+				ffmpeg.av_frame_free(&resampledFrame);
 			}
 
 			if (packet != null) {
@@ -283,27 +232,49 @@ public unsafe class AudioConverter(Stream inputStream)
 		}
 	}
 
-	private static int ReadDataFromPipe(void* opaque, byte* buf, int buf_size)
+	private int ReadFromStream(void* opaque, byte* buf, int buf_size)
 	{
-		var gch = GCHandle.FromIntPtr((nint)opaque);
-
-		if (gch.Target is not PipeReader reader) {
-			return ffmpeg.AVERROR_EXTERNAL;
+		if (!_inputStream.CanRead) {
+			return ffmpeg.AVERROR_UNKNOWN;
 		}
 
-		if (!reader.TryRead(out var result)) {
-			return 0;
+		try {
+			var buffer  = new Span<byte>(buf, buf_size);
+			var readCnt = _inputStream.Read(buffer);
+
+			return readCnt;
+		} catch (Exception ex) {
+			Console.WriteLine($"Error reading from stream: {ex.Message}");
+			return ffmpeg.AVERROR_UNKNOWN;
 		}
-
-		var buffer  = new Span<byte>(buf, buf_size);
-		var readCnt = (int)Math.Min(buf_size, result.Buffer.Length);
-
-		result.Buffer.Slice(0, readCnt).CopyTo(buffer);
-
-		return readCnt;
 	}
 
-	private static void LogInputFormatInformation(AVFormatContext* formatContext)
+	private long SeekInStream(void* opaque, long offset, int whence)
+	{
+		//Console.WriteLine($"SEEK -> offset {offset}, whence {whence}");
+		if (!_inputStream.CanSeek) {
+			return ffmpeg.AVERROR_UNKNOWN;
+		}
+
+		const int SEEK_SET = 0x0;
+		const int SEEK_CUR = 0x01;
+		const int SEEK_END = 0x02;
+
+		try {
+			return whence switch {
+				ffmpeg.AVSEEK_SIZE => _inputStream.Length,
+				SEEK_SET => _inputStream.Seek(offset, SeekOrigin.Begin),
+				SEEK_CUR => _inputStream.Seek(offset, SeekOrigin.Current),
+				SEEK_END => _inputStream.Seek(offset, SeekOrigin.End),
+				_ => ffmpeg.AVERROR_BUG,
+			};
+		} catch (Exception e) {
+			Console.WriteLine($"Exception during seek (offset {offset} whence {whence}): {e.Message}");
+			return ffmpeg.AVERROR_UNKNOWN;
+		}
+	}
+
+	private void LogInputFormatInformation(AVFormatContext* formatContext)
 	{
 		// Print format information
 		Console.WriteLine($"Format: {Marshal.PtrToStringUTF8((nint)formatContext->iformat->name)}");
@@ -350,4 +321,52 @@ public unsafe class AudioConverter(Stream inputStream)
 		Console.WriteLine($"  channels: {codecParams->ch_layout.nb_channels}");
 		Console.WriteLine($"  sample rate: {codecParams->sample_rate}");
 	}
+
+	protected virtual void Dispose(bool disposing)
+	{
+		if (_disposed) {
+			return;
+		}
+
+		if (disposing) {
+			// TODO: dispose managed state (managed objects)
+		}
+
+		if (_formatContext != null) {
+			fixed(AVFormatContext** ptr = &_formatContext) {
+				ffmpeg.avformat_close_input(ptr);
+			}
+			_formatContext = null;
+		}
+
+		if (_ioContext != null) {
+			fixed(AVIOContext** ptr = &_ioContext) {
+				ffmpeg.avio_context_free(ptr);
+			}
+			_ioContext = null;
+		}
+
+		if (_mallocBuffer != null) {
+			fixed(void* ptr = &_mallocBuffer) {
+				ffmpeg.av_free(ptr);
+			}
+			_mallocBuffer = null;
+		}
+
+		// TODO: set large fields to null
+		_disposed = true;
+	}
+
+	public void Dispose()
+	{
+		// Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+		Dispose(disposing: true);
+		GC.SuppressFinalize(this);
+	}
+
+	private static PcmAudioSpec GetAudioSpec(AVCodecParameters* parms) => new(
+		((AVSampleFormat)parms->format).AsFormat(),
+		parms->ch_layout.nb_channels,
+		parms->sample_rate);
 }
+
