@@ -4,6 +4,7 @@ using ManagedBass;
 using ManagedBass.Opus;
 using Microsoft.Extensions.Options;
 using SongServer.Configuration;
+using SongServer.Services.Smb;
 
 namespace SongServer.Services;
 
@@ -19,7 +20,7 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 	private TimeSpan _lastPos = TimeSpan.Zero;
 	private bool _disposed = false;
 
-	public BassAudioPlayer(ILogger<BassAudioPlayer> logger, IOptions<PlayerOptions> options, LibraryService library) : base(logger)
+	public BassAudioPlayer(SmbFileClient smbClient, ILogger<BassAudioPlayer> logger, IOptions<PlayerOptions> options, LibraryService library) : base(logger, smbClient)
 	{
 		_logger  = logger;
 		_library = library;

@@ -35,11 +35,17 @@ public sealed class SdlAudioDevice : IDisposable
 		_audioSpec = devSpec;
 	}
 
+	~SdlAudioDevice() => Dispose(false);
+
 	public SDL.AudioSpec AudioSpec => _disposed ? throw new ObjectDisposedException(nameof(SdlAudioDevice)) : _audioSpec;
 
 	public uint DeviceId => _disposed ? throw new ObjectDisposedException(nameof(SdlAudioDevice)) : _deviceId;
 
-	~SdlAudioDevice() => Dispose(false);
+	public bool IsPaused => SDL.AudioDevicePaused(_deviceId);
+
+	public bool Pause() => SDL.PauseAudioDevice(_deviceId);
+
+	public bool Resume() => SDL.ResumeAudioDevice(_deviceId);
 
 	public void Dispose()
 	{

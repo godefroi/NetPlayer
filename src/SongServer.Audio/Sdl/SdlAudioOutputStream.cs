@@ -6,7 +6,7 @@ namespace SongServer.Audio.Sdl;
 public class SdlAudioOutputStream : Stream
 {
 	private const int _bufferLowWaterMark = 1024 * 1024 * 1; // 1MB
-	private const int _positionReportMinChangeMs = 100;
+	private const int _waitDelayMs = 50;
 
 	private readonly SDL.AudioSpec _inputSpec;
 	private readonly SdlAudioDevice _device;
@@ -27,6 +27,8 @@ public class SdlAudioOutputStream : Stream
 		get => _writtenCount;
 		set => throw new NotSupportedException();
 	}
+
+	public TimeSpan PlayedDuration => CalculatePlayedDuration();
 
 	public SdlAudioOutputStream(SDL.AudioSpec inputSpec, SdlAudioDevice device, ILogger<SdlAudioOutputStream> logger)
 	{
@@ -50,6 +52,8 @@ public class SdlAudioOutputStream : Stream
 			"Stream opened with spec: [{sfreq} kHz {schan} chan {sform}] to device with spec: [{dfreq} kHz {dchan} chan {dform}]",
 			_inputSpec.Freq, _inputSpec.Channels, _inputSpec.Format, _device.AudioSpec.Freq, _device.AudioSpec.Channels, _device.AudioSpec.Format);
 	}
+
+	public event EventHandler<ProgressEventArgs>? Progress;
 
 	public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
@@ -84,7 +88,9 @@ public class SdlAudioOutputStream : Stream
 		}
 	}
 
-	public async Task WaitForFinish(CancellationToken cancellationToken = default)
+	public bool Clear() => SDL.ClearAudioStream(_streamId);
+
+	public void WaitForFinish(CancellationToken cancellationToken = default)
 	{
 		while (SDL.GetAudioStreamAvailable(_streamId) > 0 && !cancellationToken.IsCancellationRequested) {
 			var queued = SDL.GetAudioStreamQueued(_streamId);
@@ -93,7 +99,39 @@ public class SdlAudioOutputStream : Stream
 				_logger.LogError("Unable to retrieve queued stream data size: {err}", SDL.GetError());
 			}
 
-			await Task.Delay(_positionReportMinChangeMs, cancellationToken);
+			SDL.Delay(_waitDelayMs);
 		}
+	}
+
+	public async Task WaitForFinishAsync(CancellationToken cancellationToken = default)
+	{
+		while (SDL.GetAudioStreamAvailable(_streamId) > 0 && !cancellationToken.IsCancellationRequested) {
+			var queued = SDL.GetAudioStreamQueued(_streamId);
+
+			if (queued == -1) {
+				_logger.LogError("Unable to retrieve queued stream data size: {err}", SDL.GetError());
+			}
+
+			await Task.Delay(_waitDelayMs, cancellationToken);
+		}
+	}
+
+	private TimeSpan CalculatePlayedDuration()
+	{
+		var bytesPerSample = _inputSpec.Format switch {
+			SDL.AudioFormat.AudioS16LE => 2,
+			SDL.AudioFormat.AudioS16BE => 2,
+			SDL.AudioFormat.AudioF32LE => 4,
+			SDL.AudioFormat.AudioF32BE => 4,
+			SDL.AudioFormat.AudioS32BE => 4,
+			_ => throw new NotImplementedException($"The audio format {_inputSpec.Format} has not yet been implemented for time calculation."),
+		};
+		var bytesPerFrame  = _inputSpec.Channels * bytesPerSample;
+		var bytesPerSecond = bytesPerFrame * _inputSpec.Freq;
+		var queuedBytes    = SDL.GetAudioStreamQueued(_streamId);
+		var consumedBytes  = _writtenCount - queuedBytes;
+		var positionSecs   = (double)consumedBytes / bytesPerSecond;
+
+		return TimeSpan.FromSeconds(positionSecs);
 	}
 }

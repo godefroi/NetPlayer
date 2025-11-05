@@ -23,7 +23,8 @@ internal class Program
 		builder.Services.Configure<StreamMetadataOptions>(builder.Configuration.GetSection(StreamMetadataOptions.SectionName));
 
 		builder.Services.AddSingleton<SmbFileClient>();
-		builder.Services.AddSingleton<AudioPlayer, BassAudioPlayer>();
+		//builder.Services.AddSingleton<AudioPlayer, BassAudioPlayer>();
+		builder.Services.AddSingleton<AudioPlayer, FFmpegAudioPlayer>();
 		builder.Services.AddSingleton<LibraryService>();
 		builder.Services.AddDbContextFactory<LibraryContext>();
 
@@ -46,6 +47,9 @@ internal class Program
 		builder.Services.AddSignalR();
 
 		var app = builder.Build();
+
+		await ExecutePendingMigrations(app.Services);
+
 		var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
 		PlayerHandlers.Map(app);
@@ -66,21 +70,17 @@ internal class Program
 		using var eventCts = new CancellationTokenSource();
 		var eventTask = HandleSdlEvents(logger, eventCts.Token);
 
-		//await app.RunAsync();
-		using (var scope = app.Services.CreateScope()) {
-			//await TestSdlAudio(scope, logger);
-			await TestFfmpegAudio(scope, logger);
-			//await CheckAllAudioFormats(scope, logger);
-		}
+		await app.RunAsync();
+		// using (var scope = app.Services.CreateScope()) {
+		// 	//await TestSdlAudio(scope, logger);
+		// 	await TestFfmpegAudio(scope, logger);
+		// 	//await CheckAllAudioFormats(scope, logger);
+		// }
 
 		eventCts.Cancel();
 		await eventTask;
 
 		ShutdownSdl(logger);
-
-		await ExecutePendingMigrations(app.Services);
-
-		//await app.RunAsync();
 	}
 
 	private static async Task TestSdlAudio(IServiceScope scope, ILogger logger)
@@ -154,7 +154,7 @@ internal class Program
 		conv.ConvertStream(sao, MakeResamplerSpec(devSpec));
 
 		Console.WriteLine("Writing finished, waiting for remaining playtime...");
-		await sao.WaitForFinish();
+		await sao.WaitForFinishAsync();
 
 		static PcmAudioSpec MakeResamplerSpec(SDL.AudioSpec sdlSpec) => new(
 			sdlSpec.Format.AsFormat(),

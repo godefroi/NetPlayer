@@ -1,10 +1,13 @@
+using SongServer.Services.Smb;
+
 namespace SongServer.Services;
 
-internal abstract class AudioPlayer(ILogger logger)
+internal abstract class AudioPlayer(ILogger logger, SmbFileClient smbClient)
 {
 	private readonly Lock _stateLock = new();
 	private readonly ILogger _logger = logger;
 	private readonly Queue<SongReference> _queue = [];
+	private readonly SmbFileClient _smbClient = smbClient;
 	private Playlist _list = Playlist.Empty;
 	private PlaylistState _state = PlaylistState.Empty;
 	private SongMetadata? _currentSong = null;
@@ -24,17 +27,12 @@ internal abstract class AudioPlayer(ILogger logger)
 
 		_logger.LogInformation("Play() called. State: {state}", state);
 
-		switch (state) {
-			case State.Playing:
-				// nothing to do if we're already playing
-				return true;
-			case State.Paused:
-				return await Resume();
-			case State.Stopped:
-				return await Advance();
-			default:
-				throw new InvalidOperationException($"Unknown state {state}");
-		}
+		return state switch {
+			State.Playing => true, // nothing to do if we're already playing
+			State.Paused => await Resume(),
+			State.Stopped => await Advance(),
+			_ => throw new InvalidOperationException($"Unknown state {state}"),
+		};
 	}
 
 	public abstract Task<bool> Pause();
@@ -107,12 +105,16 @@ internal abstract class AudioPlayer(ILogger logger)
 
 				case State.Playing:
 					// we weren't playing (probably?), now we are
-					_currentSong = song;
+					_currentSong ??= song;
 					break;
 
 				default:
 					// paused probably
-					return;
+					break;
+			}
+
+			if (_currentState != state) {
+				_logger.LogInformation("Player state changed from {oldState} to {newState}", _currentState, state);
 			}
 
 			_currentState = state;
@@ -176,6 +178,18 @@ internal abstract class AudioPlayer(ILogger logger)
 	protected abstract Task<bool> Resume();
 
 	protected abstract Task<bool> Play(SongReference song);
+
+	protected Stream GetStream(Data.Song song)
+	{
+		var filePath = Path.Combine(song.SourcePath, song.RelativePath);
+
+		// TODO: here we could return a FileStream if the file was accessible locally, or whatever
+
+		// open the file from SMB
+		var (store, handle) = _smbClient.OpenRead(filePath);
+
+		return new SmbFileStream(store, handle);
+	}
 
 	internal class PlaylistState
 	{

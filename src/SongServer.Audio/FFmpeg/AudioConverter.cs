@@ -97,7 +97,7 @@ public unsafe class AudioConverter : IDisposable
 
 	public PcmAudioSpec InputSpec { get; private set; }
 
-	public void ConvertStream(Stream outputStream, PcmAudioSpec outputSpec)
+	public void ConvertStream(Stream outputStream, PcmAudioSpec outputSpec, CancellationToken cancellationToken = default)
 	{
 		var codecParams  = _formatContext->streams[StreamIndex]->codecpar;
 		var codec        = ffmpeg.avcodec_find_decoder(codecParams->codec_id);
@@ -174,7 +174,7 @@ public unsafe class AudioConverter : IDisposable
 			}
 
 			// read packets from avformat (these are packets in the source format)
-			while (ffmpeg.av_read_frame(_formatContext, packet) >= 0) {
+			while (!cancellationToken.IsCancellationRequested && ffmpeg.av_read_frame(_formatContext, packet) >= 0) {
 				// skip packets for streams we're not interested in
 				if (packet->stream_index != StreamIndex) {
 					continue;
@@ -184,7 +184,7 @@ public unsafe class AudioConverter : IDisposable
 				ffmpeg.avcodec_send_packet(codecContext, packet);
 
 				// receive decoded frames from the codec
-				while (ffmpeg.avcodec_receive_frame(codecContext, decodedFrame) >= 0) {
+				while (!cancellationToken.IsCancellationRequested && ffmpeg.avcodec_receive_frame(codecContext, decodedFrame) >= 0) {
 					// Convert to PCM
 					resampledFrame->ch_layout   = *outputLayout;
 					resampledFrame->sample_rate = outputSpec.SampleFrequency; // was frame->sample_rate;

@@ -9,6 +9,7 @@ internal class SmbFileStream : Stream
 	private readonly object _handle;
 	private readonly Lazy<int> _length;
 	private int _position = 0;
+	private bool _disposed = false;
 
 	public SmbFileStream(ISMBFileStore store, object handle)
 	{
@@ -44,7 +45,7 @@ internal class SmbFileStream : Stream
 	public override int Read(byte[] buffer, int offset, int count)
 	{
 		var readStatus = _store.ReadFile(out var data, _handle, _position, count);
-		
+
 		if (readStatus != NTStatus.STATUS_SUCCESS) {
 			throw new IOException($"Failed to read file: {readStatus}");
 		}
@@ -73,4 +74,19 @@ internal class SmbFileStream : Stream
 	public override void SetLength(long value) => throw new NotSupportedException();
 
 	public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+	protected override void Dispose(bool disposing)
+	{
+		if (_disposed) {
+			return;
+		}
+
+		if (disposing) {
+			_store.CloseFile(_handle);
+		}
+
+		_disposed = true;
+
+		base.Dispose(disposing);
+	}
 }
