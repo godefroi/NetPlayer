@@ -74,6 +74,7 @@ public class StreamMetadataService : IHostedService, IDisposable
 		}
 
 		var content = await resp.Content.ReadAsStringAsync();
+		var start   = -1L;
 
 		if (content.Length == 0) {
 			_logger.LogDebug("Stream metadata retrieval failed with zero-length content.");
@@ -86,7 +87,7 @@ public class StreamMetadataService : IHostedService, IDisposable
 			var artist = jd.RootElement.GetProperty("artist").GetString();
 			var album  = jd.RootElement.GetProperty("album").GetString();
 			var title  = jd.RootElement.GetProperty("title").GetString();
-			var start  = jd.RootElement.GetProperty("startTime").GetInt64();
+			start  = jd.RootElement.GetProperty("startTime").GetInt64();
 
 			if (_lastStart != start) {
 				using var ctx = await _contextFactory.CreateDbContextAsync();
@@ -98,6 +99,9 @@ public class StreamMetadataService : IHostedService, IDisposable
 			}
 		} catch (DbUpdateException e) when (e.InnerException is SqliteException se && se.SqliteErrorCode == 19 && se.SqliteExtendedErrorCode == 2067) {
 			_logger.LogInformation("Metadata already recorded for this start time");
+			if (start != -1) {
+				_lastStart = start;
+			}
 		} catch (DbUpdateException e) when (e.InnerException is SqliteException se) {
 			_logger.LogError(se, "SQLite error code {eCode}, extended error code {seCode}", se.SqliteErrorCode, se.SqliteExtendedErrorCode);
 		} catch (Exception e) {
