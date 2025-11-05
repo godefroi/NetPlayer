@@ -8,17 +8,37 @@ public sealed class SdlAudioDevice : IDisposable
 	private uint _deviceId;
 	private SDL.AudioSpec _audioSpec;
 
-	public SdlAudioDevice(SDL.AudioSpec? desiredSpec = null, float gain = 1.0f)
+	public SdlAudioDevice(string? deviceName = null, SDL.AudioSpec? desiredSpec = null, float gain = 1.0f)
 	{
+		var devId = SDL.AudioDeviceDefaultPlayback;
+
+		if (!string.IsNullOrWhiteSpace(deviceName)) {
+			var deviceIds = SDL.GetAudioPlaybackDevices(out var cnt);
+
+			if (deviceIds == null || cnt == 0) {
+				Console.Error.WriteLine($"Error retrieving device list: {SDL.GetError()}");
+				return;
+			}
+			
+			var deviceDict = deviceIds
+				.Select(d => (Name: SDL.GetAudioDeviceName(d), Id: d))
+				.Where(d => !string.IsNullOrWhiteSpace(d.Name))
+				.ToDictionary(d => d.Name!, d => d.Id);
+
+			if (!deviceDict.TryGetValue(deviceName, out devId)) {
+				throw new InvalidOperationException("The specified audio output device was not found.");
+			}
+		}
+
 		if (desiredSpec == null) {
-			if (!SDL.GetAudioDeviceFormat(SDL.AudioDeviceDefaultPlayback, out var dSpec, out _)) {
+			if (!SDL.GetAudioDeviceFormat(devId, out var dSpec, out _)) {
 				throw new Exception("Unable to retrieve default audio device format");
 			}
 
 			desiredSpec = dSpec;
 		}
 
-		_deviceId = SDL.OpenAudioDevice(SDL.AudioDeviceDefaultPlayback, desiredSpec.Value);
+		_deviceId = SDL.OpenAudioDevice(devId, desiredSpec.Value);
 
 		if (_deviceId == 0) {
 			throw new Exception($"Unable to open audio device: {SDL.GetError()}");
@@ -79,5 +99,24 @@ public sealed class SdlAudioDevice : IDisposable
 		}
 
 		return dSpec;
+	}
+
+	public static void ListAudioDevices()
+	{
+		var deviceIds = SDL.GetAudioPlaybackDevices(out var cnt);
+
+		if (deviceIds == null || cnt == 0) {
+			Console.Error.WriteLine($"Error retrieving device list: {SDL.GetError()}");
+			return;
+		}
+
+		var defaultName = SDL.GetAudioDeviceName(SDL.AudioDeviceDefaultPlayback);
+
+		foreach (var devId in deviceIds) {
+			var devName = SDL.GetAudioDeviceName(devId);
+			Console.WriteLine($"Name: [{devName}], default: {devName == defaultName}");
+		}
+
+		Console.WriteLine($"Default output: {defaultName}");
 	}
 }

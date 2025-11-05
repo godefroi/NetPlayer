@@ -53,8 +53,6 @@ public class SdlAudioOutputStream : Stream
 			_inputSpec.Freq, _inputSpec.Channels, _inputSpec.Format, _device.AudioSpec.Freq, _device.AudioSpec.Channels, _device.AudioSpec.Format);
 	}
 
-	public event EventHandler<ProgressEventArgs>? Progress;
-
 	public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
 	public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();

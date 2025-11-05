@@ -1,6 +1,8 @@
+using Microsoft.Extensions.Options;
 using SongServer.Audio;
 using SongServer.Audio.FFmpeg;
 using SongServer.Audio.Sdl;
+using SongServer.Configuration;
 using SongServer.Services.Smb;
 
 namespace SongServer.Services;
@@ -23,13 +25,13 @@ internal class FFmpegAudioPlayer : AudioPlayer, IDisposable
 	private SdlAudioOutputStream? _outputStream;
 	private AudioConverter? _converter;
 
-	public FFmpegAudioPlayer(SmbFileClient smbClient, LibraryService library, ILoggerFactory loggerFactory) : base(loggerFactory.CreateLogger<FFmpegAudioPlayer>(), smbClient)
+	public FFmpegAudioPlayer(SmbFileClient smbClient, LibraryService library, IOptions<PlayerOptions> options, ILoggerFactory loggerFactory) : base(loggerFactory.CreateLogger<FFmpegAudioPlayer>(), smbClient)
 	{
 		_loggerFactory = loggerFactory;
 		_logger        = loggerFactory.CreateLogger<FFmpegAudioPlayer>();
 		_library       = library;
 		_progressTimer = new(UpdateProgress, null, Timeout.Infinite, Timeout.Infinite);
-		_device        = new(gain: 0.2f); // TODO: should support some configurability here
+		_device        = new(gain: (float)options.Value.Gain); // TODO: should support some configurability here
 		_outputSpec    = new(
 			_device.AudioSpec.Format.AsFormat(),
 			_device.AudioSpec.Channels,
