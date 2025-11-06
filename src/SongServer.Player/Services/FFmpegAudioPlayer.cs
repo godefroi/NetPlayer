@@ -31,7 +31,7 @@ internal class FFmpegAudioPlayer : AudioPlayer, IDisposable
 		_logger        = loggerFactory.CreateLogger<FFmpegAudioPlayer>();
 		_library       = library;
 		_progressTimer = new(UpdateProgress, null, Timeout.Infinite, Timeout.Infinite);
-		_device        = new(gain: (float)options.Value.Gain); // TODO: should support some configurability here
+		_device        = new(gain: (float)options.Value.Gain);
 		_outputSpec    = new(
 			_device.AudioSpec.Format.AsFormat(),
 			_device.AudioSpec.Channels,

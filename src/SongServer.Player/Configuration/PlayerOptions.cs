@@ -7,4 +7,6 @@ public class PlayerOptions
 	public string Device { get; set; } = string.Empty;
 
 	public double Gain { get; set; } = 1.0d;
+
+	public string FFmpegLibraryPath { get; set; } = string.Empty;
 }

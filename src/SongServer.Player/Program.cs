@@ -6,6 +6,7 @@ using SongServer.Handlers;
 using SongServer.Services;
 using SongServer.Services.Smb;
 using SongServer.Audio.Sdl;
+using Microsoft.Extensions.Options;
 
 namespace SongServer;
 
@@ -51,6 +52,7 @@ internal class Program
 		await ExecutePendingMigrations(app.Services);
 
 		var logger = app.Services.GetRequiredService<ILogger<Program>>();
+		var pOpts  = app.Services.GetRequiredService<IOptions<PlayerOptions>>().Value;
 
 		PlayerHandlers.Map(app);
 		LibraryHandlers.Map(app);
@@ -67,7 +69,7 @@ internal class Program
 			app.Services.GetRequiredService<ILogger<SdlAudioSystem>>(),
 			app.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping);
 
-		FFmpegSystem.Initialize(app.Services.GetRequiredService<ILogger<FFmpegSystem>>());
+		FFmpegSystem.Initialize(app.Services.GetRequiredService<ILogger<FFmpegSystem>>(), pOpts.FFmpegLibraryPath);
 
 		await app.RunAsync();
 

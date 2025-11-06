@@ -11,10 +11,18 @@ public unsafe class FFmpegSystem
 
 	private FFmpegSystem() {}
 
-	public static void Initialize(ILogger<FFmpegSystem> logger)
+	public static void Initialize(ILogger<FFmpegSystem> logger, string? libraryPath)
 	{
-		// https://blog.gaein.cn/passages/beginner-guide-to-ffmpeg-autogen/
-		ffmpeg.RootPath = @"C:\Users\MarkParker\source\repos\song-server\src\SongServer.Player\_ffmpeg_bin";
+		libraryPath ??= Environment.GetEnvironmentVariable("FFMPEG_LIBRARY_PATH");
+
+		if (!string.IsNullOrWhiteSpace(libraryPath)) {
+			ffmpeg.RootPath = libraryPath;
+		} else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && RuntimeInformation.ProcessArchitecture == Architecture.Arm64) {
+			// this is what it is for raspbian...
+			ffmpeg.RootPath = "/usr/lib/aarch64-linux-gnu/";
+		} else {
+			// you're on your own, buddy...
+		}
 
 		_logger ??= logger;
 
