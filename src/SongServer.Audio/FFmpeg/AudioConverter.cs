@@ -88,14 +88,11 @@ public unsafe class AudioConverter : IDisposable
 		//Console.WriteLine($"Converting stream at index {audioStreamIndex}");
 
 		StreamIndex = audioStreamIndex;
-		InputSpec   = GetAudioSpec(_formatContext->streams[StreamIndex]->codecpar);
 	}
 
 	~AudioConverter() => Dispose(disposing: false);
 
 	public int StreamIndex { get; private set; }
-
-	public PcmAudioSpec InputSpec { get; private set; }
 
 	public void ConvertStream(Stream outputStream, PcmAudioSpec outputSpec, CancellationToken cancellationToken = default)
 	{
@@ -363,10 +360,5 @@ public unsafe class AudioConverter : IDisposable
 		Dispose(disposing: true);
 		GC.SuppressFinalize(this);
 	}
-
-	private static PcmAudioSpec GetAudioSpec(AVCodecParameters* parms) => new(
-		((AVSampleFormat)parms->format).AsFormat(),
-		parms->ch_layout.nb_channels,
-		parms->sample_rate);
 }
 
