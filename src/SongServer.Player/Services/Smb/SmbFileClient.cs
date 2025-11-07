@@ -13,6 +13,14 @@ public class SmbFileClient(IOptions<SmbConnectionOptions> options, ILogger<SmbFi
 	private readonly Dictionary<string, ISMBFileStore> _shares = new(StringComparer.InvariantCultureIgnoreCase);
 	private bool _disposed = false;
 
+	public Stream OpenStream(string uncPath)
+	{
+		var (server, share, path) = ParseUnc(uncPath);
+		var (store, handle) = OpenRead(server, share, path);
+
+		return new SmbFileStream(store, handle);
+	}
+
 	public (ISMBFileStore Store, object Handle) OpenRead(string uncPath)
 	{
 		var (server, share, path) = ParseUnc(uncPath);

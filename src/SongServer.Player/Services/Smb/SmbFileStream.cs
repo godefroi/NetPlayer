@@ -7,8 +7,8 @@ internal class SmbFileStream : Stream
 {
 	private readonly ISMBFileStore _store;
 	private readonly object _handle;
-	private readonly Lazy<int> _length;
-	private int _position = 0;
+	private readonly Lazy<long> _length;
+	private long _position = 0;
 	private bool _disposed = false;
 
 	public SmbFileStream(ISMBFileStore store, object handle)
@@ -16,13 +16,17 @@ internal class SmbFileStream : Stream
 		_store = store;
 		_handle = handle;
 		_length = new(() => {
-			var fistat = _store.GetFileInformation(out var info, _handle, FileInformationClass.FileBasicInformation);
+			var fistat = _store.GetFileInformation(out var info, _handle, FileInformationClass.FileStandardInformation);
 
 			if (fistat != NTStatus.STATUS_SUCCESS) {
 				throw new IOException($"Failed to query file information: {fistat}");
 			}
 
-			return info.Length;
+			if (info is not FileStandardInformation fsi) {
+				throw new IOException("Wrong file information class returned from GetFileInformation");
+			}
+
+			return fsi.EndOfFile;
 		});
 	}
 
@@ -45,6 +49,10 @@ internal class SmbFileStream : Stream
 	public override int Read(byte[] buffer, int offset, int count)
 	{
 		var readStatus = _store.ReadFile(out var data, _handle, _position, count);
+
+		if (readStatus == NTStatus.STATUS_END_OF_FILE && data == null) {
+			return 0;
+		}
 
 		if (readStatus != NTStatus.STATUS_SUCCESS) {
 			throw new IOException($"Failed to read file: {readStatus}");

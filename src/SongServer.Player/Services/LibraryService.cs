@@ -193,7 +193,11 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Sm
 				errors += te;
 			}
 
-			using (var context = await _contextFactory.CreateDbContextAsync()) {
+			if (errors > 0) {
+				_logger?.LogWarning("Errors occurred, skipping removal of stale items.");
+			} else {
+				using var context = await _contextFactory.CreateDbContextAsync();
+
 				// now, go through all the files and remove ones we didn't see
 				foreach (var f in context.Songs) {
 					if (!seen.Contains(f.Url)) {
@@ -244,7 +248,6 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Sm
 
 			// no, read them serially
 			var fl = new List<(string FileName, string Hash, TagLib.Tag Tag, TimeSpan Duration)>();
-
 			foreach (var f in dir) {
 				try {
 					var tf = await ReadFile(sourcePath, f);
@@ -254,7 +257,6 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Sm
 					errors += 1;
 				}
 			}
-
 			files = [.. fl];
 
 			// then process them one-at-a-time
@@ -353,12 +355,22 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Sm
 
 		if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && sourcePath.StartsWith(@"\\")) {
 			// read the file via SMB
-			var (store, handle) = _smbClient.OpenRead(filePath);
-			using var stream = new SmbFileStream(store, handle);
-			using var tagFile = TagLib.File.Create(new SmbFileAbstraction(store, handle, filePath));
-			var hashTask = sha256.ComputeHashAsync(stream);
+			TagLib.Tag tag;
+			TimeSpan duration;
+			byte[] hash;
 
-			return (filePath, Convert.ToHexStringLower(await hashTask), tagFile.Tag, tagFile.Properties.Duration);
+			var (store, handle) = _smbClient.OpenRead(filePath);
+			using (var tagFile = TagLib.File.Create(new SmbFileAbstraction(store, handle, filePath))) {
+				tag = tagFile.Tag;
+				duration = tagFile.Properties.Duration;
+			}
+			store.CloseFile(handle);
+
+			using (var stream = _smbClient.OpenStream(filePath)) {
+				hash = await sha256.ComputeHashAsync(stream);
+			}
+
+			return (filePath, Convert.ToHexStringLower(hash), tag, duration);
 		} else {
 			// not linux, or not a UNC path
 			using var stream  = File.OpenRead(filePath);
