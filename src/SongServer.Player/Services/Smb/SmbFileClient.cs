@@ -93,7 +93,10 @@ public class SmbFileClient(IOptions<SmbConnectionOptions> options, ILogger<SmbFi
 							dirs.Enqueue(Path.Combine(curDir, fi.FileName));
 						}
 					} else {
-						yield return $"\\\\{server}\\{share}\\{Path.Combine(curDir, fi.FileName)}";
+						// curDir will be rooted at the share
+						// we want to return a path relative to the source path
+						//yield return Path.Combine(curDir, fi.FileName);
+						yield return Path.GetRelativePath(path, Path.Combine(curDir, fi.FileName));
 					}
 				}
 			} finally {

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
+using SMBLibrary.Client;
 using SongServer.Data;
 using SongServer.Services.Smb;
 
@@ -173,22 +174,22 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Sm
 		var remArtist = 0;
 		var processed = 0;
 		var errors    = 0;
-		var seen      = new HashSet<Uri>();
+		var seen      = new HashSet<(long SourceId, string RelativePath)>();
 		var start     = Stopwatch.GetTimestamp();
 
-		List<string> libraryPaths;
+		List<Source> libraryPaths;
 
 		await _scanSemaphore.WaitAsync();
 
 		try {
 			using (var context = await _contextFactory.CreateDbContextAsync()) {
 				// get the list of library paths
-				libraryPaths = await context.Sources.Select(s => s.Path).ToListAsync();
+				libraryPaths = await context.Sources.AsNoTracking().ToListAsync();
 			}
 
 			// scan the source paths
 			foreach (var p in libraryPaths) {
-				var (tp, te) = await ProcessSourceDirectory(p, seen);
+				var (tp, te) = await ProcessSourceDirectory(p.Id, p.Path, seen);
 				processed += tp;
 				errors += te;
 			}
@@ -200,7 +201,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Sm
 
 				// now, go through all the files and remove ones we didn't see
 				foreach (var f in context.Songs) {
-					if (!seen.Contains(f.Url)) {
+					if (!seen.Contains((f.SourceId, f.RelativePath))) {
 						context.Songs.Remove(f);
 					}
 				}
@@ -220,9 +221,9 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Sm
 		_logger?.LogInformation("Refresh complete in {dur}; {processed} processed, {updated} added/updated, {removed} removed. {remAlbum} albums and {remArtist} artists pruned.", Stopwatch.GetElapsedTime(start), seen.Count, updated, removed, remAlbum, remArtist);
 	}
 
-	private async Task<(int Processed, int Errors)> ProcessSourceDirectory(string sourcePath, HashSet<Uri> foundFiles)
+	private async Task<(int Processed, int Errors)> ProcessSourceDirectory(long sourceId, string sourcePath, HashSet<(long SourceId, string RelativePath)> foundFiles)
 	{
-		(string FileName, string Hash, TagLib.Tag Tag, TimeSpan Duration)[]? files;
+		FileRecord[]? files;
 
 		_logger?.LogInformation("Starting scan of {sourcePath}", sourcePath);
 
@@ -247,11 +248,10 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Sm
 			// }
 
 			// no, read them serially
-			var fl = new List<(string FileName, string Hash, TagLib.Tag Tag, TimeSpan Duration)>();
+			var fl = new List<FileRecord>();
 			foreach (var f in dir) {
 				try {
-					var tf = await ReadFile(sourcePath, f);
-					fl.Add(tf);
+					fl.Add(await ReadFile(sourceId, sourcePath, f));
 				} catch (Exception e) {
 					_logger?.LogError(e, "Error reading file during scanning");
 					errors += 1;
@@ -260,12 +260,12 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Sm
 			files = [.. fl];
 
 			// then process them one-at-a-time
-			foreach (var (fileName, hash, tag, duration) in files) {
+			foreach (var record in files) {
 				try {
-					changes += await ProcessFile(sourcePath, fileName, hash, tag, duration, foundFiles);
+					changes += await ProcessFile(record, foundFiles);
 				} catch (Exception e) {
 					errors++;
-					_logger?.LogError(e, "Error occurred while processing file {sourcePath}", fileName);
+					_logger?.LogError(e, "Error occurred while processing file {sourcePath}", record.RelativePath);
 				}
 			}
 
@@ -278,68 +278,64 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Sm
 		return (changes, errors);
 	}
 
-	private async Task<int> ProcessFile(string sourcePath, string filePath, string fileHash, TagLib.Tag tag, TimeSpan duration, HashSet<Uri> foundFiles)
+	private async Task<int> ProcessFile(FileRecord file, HashSet<(long SourceId, string RelativePath)> foundFiles)
 	{
 		using var context = await _contextFactory.CreateDbContextAsync();
 
-		var fileInfo = new FileInfo(filePath);
-		var songPath = Path.GetRelativePath(sourcePath, Path.GetFullPath(filePath));
-		var source   = context.Sources.SingleOrDefault(s => s.Path == sourcePath) ?? throw new InvalidOperationException("The specified source path cannot be found in the database.");
-		var song     = context.Songs.Find(source.Id, songPath);
+		var song = context.Songs.Find(file.SourceId, file.RelativePath);
 
 		// add this file to the list of files we saw
-		foundFiles.Add(Song.ConvertToUri(Path.Combine(sourcePath, songPath)));
+		foundFiles.Add((file.SourceId, file.RelativePath));
 
-		if (song != null && song.FileHash == fileHash) {
+		if (song != null && song.FileHash == file.Hash) {
 			// the song hasn't changed, we're done here
 			return 0;
 		}
 
-		var album            = Clean(tag.Album);
-		var albumSort        = Clean(tag.AlbumSort);
-		var albumArtists     = Clean(tag.AlbumArtists);
-		var albumArtistsSort = Clean(tag.AlbumArtistsSort);
-		var performers       = Clean(tag.Performers);
-		var performersSort   = Clean(tag.PerformersSort);
+		var album            = Clean(file.Tag.Album);
+		var albumSort        = Clean(file.Tag.AlbumSort);
+		var albumArtists     = Clean(file.Tag.AlbumArtists);
+		var albumArtistsSort = Clean(file.Tag.AlbumArtistsSort);
+		var performers       = Clean(file.Tag.Performers);
+		var performersSort   = Clean(file.Tag.PerformersSort);
 
 		if (song != null) {
 			// we have the song, but something changed
-			song.FileHash         = fileHash;
-			song.FileModified     = fileInfo.LastWriteTime;
-			song.FileSize         = fileInfo.Length;
+			song.FileHash         = file.Hash;
+			song.FileModified     = file.LastWrite;
+			song.FileSize         = file.Length;
 			song.Album            = album;
 			song.AlbumSort        = albumSort;
 			song.AlbumArtists     = albumArtists;
 			song.AlbumArtistsSort = albumArtistsSort;
 			song.Performers       = performers;
 			song.PerformersSort   = performersSort;
-			song.Title            = Clean(tag.Title) ?? Path.GetFileNameWithoutExtension(songPath);
-			song.TrackNumber      = tag.Track == 0 ? null : (int)tag.Track;
-			song.TrackCount       = tag.TrackCount == 0 ? null : (int)tag.TrackCount;
-			song.DiscNumber       = tag.Disc == 0 ? null : (int)tag.Disc;
-			song.DiscCount        = tag.DiscCount == 0 ? null : (int)tag.DiscCount;
-
-			song.Duration         = duration;
+			song.Title            = Clean(file.Tag.Title) ?? Path.GetFileNameWithoutExtension(file.RelativePath);
+			song.TrackNumber      = file.Tag.Track == 0 ? null : (int)file.Tag.Track;
+			song.TrackCount       = file.Tag.TrackCount == 0 ? null : (int)file.Tag.TrackCount;
+			song.DiscNumber       = file.Tag.Disc == 0 ? null : (int)file.Tag.Disc;
+			song.DiscCount        = file.Tag.DiscCount == 0 ? null : (int)file.Tag.DiscCount;
+			song.Duration         = file.Duration;
 		} else {
 			// new song... load 'er up
 			song = new Song {
-				SourceId         = source.Id,
-				RelativePath     = songPath,
-				FileHash         = fileHash,
-				FileModified     = fileInfo.LastWriteTime,
-				FileSize         = fileInfo.Length,
+				SourceId         = file.SourceId,
+				RelativePath     = file.RelativePath,
+				FileHash         = file.Hash,
+				FileModified     = file.LastWrite,
+				FileSize         = file.Length,
 				Album            = album,
 				AlbumSort        = albumSort,
 				AlbumArtists     = albumArtists,
 				AlbumArtistsSort = albumArtistsSort,
 				Performers       = performers,
 				PerformersSort   = performersSort,
-				Title            = Clean(tag.Title) ?? Path.GetFileNameWithoutExtension(songPath),
-				TrackNumber      = tag.Track == 0 ? null : (int)tag.Track,
-				TrackCount       = tag.TrackCount == 0 ? null : (int)tag.TrackCount,
-				DiscNumber       = tag.Disc == 0 ? null : (int)tag.Disc,
-				DiscCount        = tag.DiscCount == 0 ? null : (int)tag.DiscCount,
-				Duration         = duration,
+				Title            = Clean(file.Tag.Title) ?? Path.GetFileNameWithoutExtension(file.RelativePath),
+				TrackNumber      = file.Tag.Track == 0 ? null : (int)file.Tag.Track,
+				TrackCount       = file.Tag.TrackCount == 0 ? null : (int)file.Tag.TrackCount,
+				DiscNumber       = file.Tag.Disc == 0 ? null : (int)file.Tag.Disc,
+				DiscCount        = file.Tag.DiscCount == 0 ? null : (int)file.Tag.DiscCount,
+				Duration         = file.Duration,
 			};
 
 			context.Songs.Add(song);
@@ -349,45 +345,72 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Sm
 		return await context.SaveChangesAsync();
 	}
 
-	private async Task<(string FileName, string Hash, TagLib.Tag Tag, TimeSpan Duration)> ReadFile(string sourcePath, string filePath)
+	private async Task<FileRecord> ReadFile(long sourceId, string sourcePath, string filePath)
 	{
+		// (string FileName, string Hash, TagLib.Tag Tag, TimeSpan Duration)
 		using var sha256 = SHA256.Create();
+
+		var fullPath = Path.Combine(sourcePath, filePath);
 
 		if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && sourcePath.StartsWith(@"\\")) {
 			// read the file via SMB
 			TagLib.Tag tag;
 			TimeSpan duration;
 			byte[] hash;
+			DateTime lastWrite;
+			long size;
 
-			var (store, handle) = _smbClient.OpenRead(filePath);
-			using (var tagFile = TagLib.File.Create(new SmbFileAbstraction(store, handle, filePath))) {
+			var (store, handle) = _smbClient.OpenRead(fullPath);
+			try {
+				(size, lastWrite) = GetFileInformation(store, handle);
+				using var tagFile = TagLib.File.Create(new SmbFileAbstraction(store, handle, filePath));
 				tag = tagFile.Tag;
 				duration = tagFile.Properties.Duration;
+			} finally {
+				store.CloseFile(handle);
 			}
-			store.CloseFile(handle);
 
-			using (var stream = _smbClient.OpenStream(filePath)) {
+			using (var stream = _smbClient.OpenStream(fullPath)) {
 				hash = await sha256.ComputeHashAsync(stream);
 			}
 
-			return (filePath, Convert.ToHexStringLower(hash), tag, duration);
+			return new(sourceId, filePath, Convert.ToHexStringLower(hash), tag, duration, lastWrite, size);
 		} else {
 			// not linux, or not a UNC path
-			using var stream  = File.OpenRead(filePath);
+			var fInfo = new FileInfo(fullPath);
+			using var stream  = File.OpenRead(fullPath);
 			var hashTask = sha256.ComputeHashAsync(stream);
-			using var tagFile = TagLib.File.Create(filePath);
+			using var tagFile = TagLib.File.Create(fullPath);
 
-			return (filePath, Convert.ToHexStringLower(await hashTask), tagFile.Tag, tagFile.Properties.Duration);
+			return new(sourceId, filePath, Convert.ToHexStringLower(await hashTask), tagFile.Tag, tagFile.Properties.Duration, fInfo.LastWriteTime, fInfo.Length);
 		}
 	}
 
 	private IEnumerable<string> EnumerateFiles(string sourcePath)
 	{
 		if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && sourcePath.StartsWith(@"\\")) {
-			return _smbClient.EnumerateFiles(sourcePath);
+			return _smbClient
+				.EnumerateFiles(sourcePath);
 		} else {
-			return Directory.EnumerateFiles(sourcePath, "*.*", SearchOption.AllDirectories);
+			return Directory
+				.EnumerateFiles(sourcePath, "*.*", SearchOption.AllDirectories)
+				.Select(f => Path.GetRelativePath(sourcePath, f));
 		}
+	}
+
+	private static (long Size, DateTime LastWriteTime) GetFileInformation(ISMBFileStore store, object handle)
+	{
+		var fistat = store.GetFileInformation(out var info, handle, SMBLibrary.FileInformationClass.FileAllInformation);
+
+		if (fistat != SMBLibrary.NTStatus.STATUS_SUCCESS) {
+			throw new IOException($"Failed to query file information: {fistat}");
+		}
+
+		if (info is not SMBLibrary.FileAllInformation fsi) {
+			throw new IOException("Wrong file information class returned from GetFileInformation");
+		}
+
+		return (fsi.StandardInformation.EndOfFile, fsi.BasicInformation.LastWriteTime.Time ?? DateTime.MinValue);
 	}
 
 	private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
@@ -401,4 +424,6 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Sm
 
 		return list.Count == 0 ? null : list;
 	}
+
+	private record FileRecord(long SourceId, string RelativePath, string Hash, TagLib.Tag Tag, TimeSpan Duration, DateTime LastWrite, long Length);
 }
