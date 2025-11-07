@@ -355,7 +355,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Sm
 			// read the file via SMB
 			var (store, handle) = _smbClient.OpenRead(filePath);
 			using var stream = new SmbFileStream(store, handle);
-			using var tagFile = TagLib.File.Create(new SmbFileAbstraction(store, handle));
+			using var tagFile = TagLib.File.Create(new SmbFileAbstraction(store, handle, filePath));
 			var hashTask = sha256.ComputeHashAsync(stream);
 
 			return (filePath, Convert.ToHexStringLower(await hashTask), tagFile.Tag, tagFile.Properties.Duration);

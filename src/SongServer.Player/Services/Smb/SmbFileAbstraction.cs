@@ -3,14 +3,14 @@ using SMBLibrary.Client;
 
 namespace SongServer.Services.Smb;
 
-public class SmbFileAbstraction(ISMBFileStore store, object handle) : TagLib.File.IFileAbstraction, IDisposable
+public class SmbFileAbstraction(ISMBFileStore store, object handle, string name) : TagLib.File.IFileAbstraction, IDisposable
 {
 	private ISMBFileStore _store = store;
 	private object? _handle = handle;
 	private SmbFileStream? _readStream = null;
 	private bool _disposed = false;
 
-	public string Name => throw new NotImplementedException();
+	public string Name => name;
 
 	public Stream ReadStream => _readStream ??= new SmbFileStream(_store, _handle ?? throw new ObjectDisposedException(nameof(_handle)));
 
