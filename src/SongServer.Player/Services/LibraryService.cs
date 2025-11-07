@@ -1,17 +1,20 @@
 using System.Collections.Frozen;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using SongServer.Data;
+using SongServer.Services.Smb;
 
 namespace SongServer.Services;
 
-public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, ILogger<LibraryService>? logger = null) : IDisposable
+public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, SmbFileClient smbClient, ILogger<LibraryService>? logger = null) : IDisposable
 {
 	private readonly static FrozenSet<string> _extensions = [".mp3", ".opus", ".flac", ".m4a"];
 	private const string _noArtist = "[No Artist]";
 	private const string _noAlbum = "[No Album]";
 
+	private readonly SmbFileClient _smbClient = smbClient;
 	private readonly IDbContextFactory<LibraryContext> _contextFactory = contextFactory;
 	private readonly SemaphoreSlim _scanSemaphore = new(1, 1);
 	private readonly ILogger<LibraryService>? _logger = logger;
@@ -222,10 +225,9 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 		var changes     = 0;
 		var errors      = 0;
 		var total       = 0;
-		var directories = Directory
-			.EnumerateFiles(sourcePath, "*.*", SearchOption.AllDirectories)
+		var directories = EnumerateFiles(sourcePath)
 			.Where(file => _extensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
-			.GroupBy(f => Path.GetDirectoryName(f));
+			.GroupBy(Path.GetDirectoryName);
 
 		foreach (var dir in directories) {
 			// read the files in parallel
@@ -330,13 +332,35 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 		return await context.SaveChangesAsync();
 	}
 
-	private static async Task<(string FileName, string Hash, TagLib.Tag Tag, TimeSpan Duration)> ReadFile(string sourcePath, string filePath)
+	private async Task<(string FileName, string Hash, TagLib.Tag Tag, TimeSpan Duration)> ReadFile(string sourcePath, string filePath)
 	{
-		var hashTask = CalculateFileHashAsync(filePath);
+		using var sha256 = SHA256.Create();
 
-		using var tagFile = TagLib.File.Create(filePath);
+		if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && sourcePath.StartsWith(@"\\")) {
+			// read the file via SMB
+			var (store, handle) = _smbClient.OpenRead(sourcePath);
+			using var stream = new SmbFileStream(store, handle);
+			using var tagFile = TagLib.File.Create(new SmbFileAbstraction(store, handle));
+			var hashTask = sha256.ComputeHashAsync(stream);
 
-		return (filePath, await hashTask, tagFile.Tag, tagFile.Properties.Duration);
+			return (filePath, Convert.ToHexStringLower(await hashTask), tagFile.Tag, tagFile.Properties.Duration);
+		} else {
+			// not linux, or not a UNC path
+			using var stream  = File.OpenRead(filePath);
+			var hashTask = sha256.ComputeHashAsync(stream);
+			using var tagFile = TagLib.File.Create(filePath);
+
+			return (filePath, Convert.ToHexStringLower(await hashTask), tagFile.Tag, tagFile.Properties.Duration);
+		}
+	}
+
+	private IEnumerable<string> EnumerateFiles(string sourcePath)
+	{
+		if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && sourcePath.StartsWith(@"\\")) {
+			return _smbClient.EnumerateFiles(sourcePath);
+		} else {
+			return Directory.EnumerateFiles(sourcePath, "*.*", SearchOption.AllDirectories);
+		}
 	}
 
 	private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
@@ -349,14 +373,5 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, IL
 			.ToList();
 
 		return list.Count == 0 ? null : list;
-	}
-
-	private static async Task<string> CalculateFileHashAsync(string filePath)
-	{
-		using var stream = File.OpenRead(filePath);
-		using var sha256 = SHA256.Create();
-
-		var hash = await sha256.ComputeHashAsync(stream);
-		return Convert.ToHexStringLower(hash);
 	}
 }

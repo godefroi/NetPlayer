@@ -18,6 +18,7 @@ internal class Program
 
 		builder.Services.Configure<PlayerOptions>(builder.Configuration.GetSection(PlayerOptions.SectionName));
 		builder.Services.Configure<StreamMetadataOptions>(builder.Configuration.GetSection(StreamMetadataOptions.SectionName));
+		builder.Services.Configure<SmbConnectionOptions>(builder.Configuration.GetSection(SmbConnectionOptions.SectionName));
 
 		builder.Services.AddSingleton<SmbFileClient>();
 		//builder.Services.AddSingleton<AudioPlayer, BassAudioPlayer>();
@@ -36,7 +37,6 @@ internal class Program
 		builder.Services.AddSignalR();
 
 		var app = builder.Build();
-
 
 		if (args.Length != 0) {
 			switch (args[0]) {
