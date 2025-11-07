@@ -35,7 +35,7 @@ public class SmbFileClient(IOptions<SmbConnectionOptions> options, ILogger<SmbFi
 			throw new IOException($"Unable to open file {path} for reading on share {share}");
 		}
 
-		if (status != SMBLibrary.FileStatus.FILE_OPENED) {
+		if (status != FileStatus.FILE_OPENED) {
 			throw new IOException($"Failure status: {status}");
 		}
 

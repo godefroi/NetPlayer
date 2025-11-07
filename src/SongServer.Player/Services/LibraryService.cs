@@ -338,7 +338,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Sm
 
 		if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && sourcePath.StartsWith(@"\\")) {
 			// read the file via SMB
-			var (store, handle) = _smbClient.OpenRead(sourcePath);
+			var (store, handle) = _smbClient.OpenRead(filePath);
 			using var stream = new SmbFileStream(store, handle);
 			using var tagFile = TagLib.File.Create(new SmbFileAbstraction(store, handle));
 			var hashTask = sha256.ComputeHashAsync(stream);
