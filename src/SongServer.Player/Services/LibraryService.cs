@@ -231,16 +231,31 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Sm
 
 		foreach (var dir in directories) {
 			// read the files in parallel
-			try {
-				files = await Task.WhenAll(dir.Select(f => ReadFile(sourcePath, f)));
-			} catch (AggregateException ae) {
-				foreach (var e in ae.InnerExceptions) {
-					_logger?.LogError(e, "Error occurred reading file");
-				}
+			// try {
+			// 	files = await Task.WhenAll(dir.Select(f => ReadFile(sourcePath, f)));
+			// } catch (AggregateException ae) {
+			// 	foreach (var e in ae.InnerExceptions) {
+			// 		_logger?.LogError(e, "Error occurred reading file");
+			// 	}
 
-				errors += 1;
-				continue;
+			// 	errors += 1;
+			// 	continue;
+			// }
+
+			// no, read them serially
+			var fl = new List<(string FileName, string Hash, TagLib.Tag Tag, TimeSpan Duration)>();
+
+			foreach (var f in dir) {
+				try {
+					var tf = await ReadFile(sourcePath, f);
+					fl.Add(tf);
+				} catch (Exception e) {
+					_logger?.LogError(e, "Error reading file during scanning");
+					errors += 1;
+				}
 			}
+
+			files = [.. fl];
 
 			// then process them one-at-a-time
 			foreach (var (fileName, hash, tag, duration) in files) {
