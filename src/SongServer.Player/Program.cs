@@ -7,6 +7,7 @@ using SongServer.Services;
 using SongServer.Services.Smb;
 using SongServer.Audio.Sdl;
 using Microsoft.Extensions.Options;
+using SongServer.Services.Library;
 
 namespace SongServer;
 
@@ -24,6 +25,7 @@ internal class Program
 		//builder.Services.AddSingleton<AudioPlayer, BassAudioPlayer>();
 		builder.Services.AddSingleton<AudioPlayer, FFmpegAudioPlayer>();
 		builder.Services.AddSingleton<LibraryService>();
+		builder.Services.AddTransient<FileInformationRetriever>();
 		builder.Services.AddDbContextFactory<LibraryContext>();
 
 		builder.Services.AddHostedService<AudioPlayerService>();

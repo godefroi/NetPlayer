@@ -16,6 +16,12 @@ public class SmbFileClient(IOptions<SmbConnectionOptions> options, ILogger<SmbFi
 	public Stream OpenStream(string uncPath)
 	{
 		var (server, share, path) = ParseUnc(uncPath);
+		
+		return OpenStream(server, share, path);
+	}
+
+	public Stream OpenStream(string server, string share, string path)
+	{
 		var (store, handle) = OpenRead(server, share, path);
 
 		return new SmbFileStream(store, handle);
@@ -29,7 +35,7 @@ public class SmbFileClient(IOptions<SmbConnectionOptions> options, ILogger<SmbFi
 
 	public (ISMBFileStore Store, object Handle) OpenRead(string server, string share, string path)
 	{
-		_logger.LogInformation("Retrieve file [{path}] from share {share} on server {server}", path, share, server);
+		_logger.LogDebug("Open file [{path}] from share {share} on server {server}", path, share, server);
 
 		var smb    = GetSmbClient(server);
 		var store  = GetFileStore(smb, share);
