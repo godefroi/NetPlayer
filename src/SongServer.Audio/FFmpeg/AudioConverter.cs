@@ -15,7 +15,6 @@ public unsafe class AudioConverter : IDisposable
 	private bool _disposed = false;
 
 	private AVFormatContext* _formatContext = null;
-	private byte* _mallocBuffer = null;
 	private AVIOContext* _ioContext = null;
 
 	public AudioConverter(Stream inputStream, ILogger<AudioConverter> logger)
@@ -27,16 +26,18 @@ public unsafe class AudioConverter : IDisposable
 		_readStream   = new(ReadFromStream);
 		_seekStream   = new(SeekInStream);
 
+		byte* buffer = null;
+
 		if ((_formatContext = ffmpeg.avformat_alloc_context()) == null) {
 			throw new Exception("Unable to allocate AVFormatContext");
 		}
 
-		if ((_mallocBuffer = (byte*)ffmpeg.av_malloc(_bufferLength)) == null) {
+		if ((buffer = (byte*)ffmpeg.av_malloc(_bufferLength)) == null) {
 			throw new Exception("Unable to allocate IO buffer");
 		}
 
 		_ioContext = ffmpeg.avio_alloc_context(
-			_mallocBuffer,
+			buffer,
 			_bufferLength,
 			0,
 			null,
@@ -337,20 +338,15 @@ public unsafe class AudioConverter : IDisposable
 			_formatContext = null;
 		}
 
+		if (_ioContext->buffer != null) {
+			ffmpeg.av_free(_ioContext->buffer);
+		}
+
 		if (_ioContext != null) {
 			fixed(AVIOContext** ptr = &_ioContext) {
 				ffmpeg.avio_context_free(ptr);
 			}
 			_ioContext = null;
-		}
-
-		if (_mallocBuffer != null) {
-			Console.WriteLine("About to free _mallocBuffer");
-			fixed(void* ptr = &_mallocBuffer) {
-				ffmpeg.av_free(ptr);
-			}
-			_mallocBuffer = null;
-			Console.WriteLine("Freed _mallocBuffer");
 		}
 
 		// TODO: set large fields to null
