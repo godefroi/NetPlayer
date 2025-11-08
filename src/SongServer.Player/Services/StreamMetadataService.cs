@@ -48,13 +48,17 @@ public class StreamMetadataService : IHostedService, IDisposable
 		GC.SuppressFinalize(this);
 	}
 
-	public Task StartAsync(CancellationToken cancellationToken)
+	public async Task StartAsync(CancellationToken cancellationToken)
 	{
-		if (!_timer.Change(TimeSpan.Zero, TimeSpan.FromMinutes(1))) {
+		using var ctx = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+		var metaCnt = await ctx.StreamMetadata.CountAsync(cancellationToken);
+
+		if (metaCnt > 100_000) {
+			_logger.LogWarning("Stream metadata count ({cnt}) exceeds limit, skipping startup.", metaCnt);
+		} else if (!_timer.Change(TimeSpan.Zero, TimeSpan.FromMinutes(1))) {
 			throw new Exception("Timer startup failed.");
 		}
-
-		return Task.CompletedTask;
 	}
 
 	public Task StopAsync(CancellationToken cancellationToken)
