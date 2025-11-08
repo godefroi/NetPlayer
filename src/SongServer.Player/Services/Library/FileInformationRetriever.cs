@@ -35,11 +35,11 @@ public class FileInformationRetriever(SmbFileClient smbClient)
 		}
 	}
 
-	public async Task<FileRecord> ReadFile(Uri fileUri)
+	public async Task<FileRecord> ReadFileInfo(Uri fileUri)
 	{
 		// if it's smb:// but we're on windows, we can just pretend it was file://
 		if (fileUri.Scheme == _smbScheme && RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
-			return await ReadFile(new UriBuilder(fileUri) { Scheme = Uri.UriSchemeFile }.Uri);
+			return await ReadFileInfo(new UriBuilder(fileUri) { Scheme = Uri.UriSchemeFile }.Uri);
 		}
 
 		using var sha256 = SHA256.Create();
@@ -71,11 +71,25 @@ public class FileInformationRetriever(SmbFileClient smbClient)
 			return new(Convert.ToHexStringLower(hash), tag, duration, lastWrite, size);
 		} else {
 			var fInfo = new FileInfo(fileUri.LocalPath);
-			using var stream  = File.OpenRead(fileUri.LocalPath);
+			using var stream = File.OpenRead(fileUri.LocalPath);
 			var hashTask = sha256.ComputeHashAsync(stream);
 			using var tagFile = TagLib.File.Create(fileUri.LocalPath);
 
 			return new(Convert.ToHexStringLower(await hashTask), tagFile.Tag, tagFile.Properties.Duration, fInfo.LastWriteTime, fInfo.Length);
+		}
+	}
+
+	public Stream OpenFileStream(Uri fileUri)
+	{
+		if (fileUri.Scheme == _smbScheme && RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
+			return OpenFileStream(new UriBuilder(fileUri) { Scheme = Uri.UriSchemeFile }.Uri);
+		}
+
+		if (fileUri.Scheme == _smbScheme) {
+			var (server, share, path) = ParseUri(fileUri);
+			return _smbClient.OpenStream(server, share, path);
+		} else {
+			return File.OpenRead(fileUri.LocalPath);
 		}
 	}
 

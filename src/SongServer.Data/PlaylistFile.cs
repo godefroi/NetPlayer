@@ -4,7 +4,7 @@ public class PlaylistFile
 {
 	public required long SourceId { get; set; }
 
-	public required string RelativePath { get; set; }
+	public required Uri RelativePath { get; set; }
 
 	public Source? Source { get; set; }
 
@@ -25,7 +25,10 @@ public class PlaylistFileConfiguration : IEntityTypeConfiguration<PlaylistFile>
 
 		builder.Property(p => p.RelativePath)
 			.HasColumnName("relative_path")
-			.IsRequired();
+			.IsRequired()
+			.HasConversion(
+				v => v.ToString(),
+				v => new Uri(v, UriKind.Relative));
 
 		builder.HasOne(p => p.Source)
 			.WithMany()

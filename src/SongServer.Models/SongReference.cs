@@ -7,5 +7,5 @@ public record SongReference(
 	long SourceId,
 
 	[property: JsonPropertyName("relativePath")]
-	string RelativePath
+	Uri RelativePath
 );

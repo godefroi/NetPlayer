@@ -3,7 +3,7 @@ using SongServer.Audio;
 using SongServer.Audio.FFmpeg;
 using SongServer.Audio.Sdl;
 using SongServer.Configuration;
-using SongServer.Services.Smb;
+using SongServer.Services.Library;
 
 namespace SongServer.Services;
 
@@ -25,7 +25,7 @@ internal class FFmpegAudioPlayer : AudioPlayer, IDisposable
 	private SdlAudioOutputStream? _outputStream;
 	private AudioConverter? _converter;
 
-	public FFmpegAudioPlayer(SmbFileClient smbClient, LibraryService library, IOptions<PlayerOptions> options, ILoggerFactory loggerFactory) : base(loggerFactory.CreateLogger<FFmpegAudioPlayer>(), smbClient)
+	public FFmpegAudioPlayer(FileInformationRetriever retriever, LibraryService library, IOptions<PlayerOptions> options, ILoggerFactory loggerFactory) : base(loggerFactory.CreateLogger<FFmpegAudioPlayer>(), retriever)
 	{
 		_loggerFactory = loggerFactory;
 		_logger        = loggerFactory.CreateLogger<FFmpegAudioPlayer>();

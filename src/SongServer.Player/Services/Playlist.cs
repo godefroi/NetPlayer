@@ -21,7 +21,7 @@ public class Playlist
 		foreach (var entry in entries) {
 			var sid = entry.SourceId;
 			hasher.AppendData(MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref sid, 1)));
-			hasher.AppendData(MemoryMarshal.AsBytes(entry.RelativePath.AsSpan()));
+			hasher.AppendData(MemoryMarshal.AsBytes(entry.RelativePath.ToString().AsSpan()));
 			_entries.Add(entry);
 		}
 
@@ -115,7 +115,7 @@ public class Playlist
 				await LoadList(line, sourceId, entries, visitedFiles, hasher);
 			} else {
 				hasher.AppendData(MemoryMarshal.AsBytes(line.AsSpan()));
-				entries.Add(new SongReference(sourceId, line));
+				entries.Add(new SongReference(sourceId, new Uri(line, UriKind.Relative)));
 			}
 		}
 	}

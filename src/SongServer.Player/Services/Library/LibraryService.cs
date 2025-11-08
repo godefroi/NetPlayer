@@ -2,12 +2,12 @@ using System.Collections.Frozen;
 using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using SongServer.Data;
-using SongServer.Services.Smb;
 
 namespace SongServer.Services.Library;
 
-// prep for the uri-pocalypse:
+// prepare for the uri-pocalypse:
 //   update sources set path = replace(replace(path, '\\', 'smb://'), '\', '/');
+//   update sources set path = path || '/';
 //   update songs set path = replace(path, '\', '/');
 //   update playlist set relative_path = replace(relative_path, '\', '/');
 
@@ -28,10 +28,8 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 		GC.SuppressFinalize(this);
 	}
 
-	public async Task InitializeAsync(IEnumerable<string> libraryPaths)
+	public async Task InitializeAsync(IEnumerable<Uri> sourceUris)
 	{
-		libraryPaths = [.. libraryPaths.Select(Path.GetFullPath)];
-
 		await _scanSemaphore.WaitAsync();
 
 		try {
@@ -41,14 +39,14 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 			await context.Database.EnsureCreatedAsync();
 
 			// add sources to database if they don't exist
-			foreach (var path in libraryPaths) {
-				var existingSource = await context.Sources.SingleOrDefaultAsync(s => s.Path == path);
+			foreach (var uri in sourceUris) {
+				var existingSource = await context.Sources.SingleOrDefaultAsync(s => s.Path == uri);
 
 				if (existingSource == null) {
-					_logger?.LogInformation("Adding source {path}", path);
-					context.Set<Source>().Add(new Source { Path = path });
+					_logger?.LogInformation("Adding source {path}", uri);
+					context.Set<Source>().Add(new Source { Path = uri });
 				} else {
-					_logger?.LogInformation("Source already exists: {path}", path);
+					_logger?.LogInformation("Source already exists: {path}", uri);
 				}
 			}
 
@@ -191,7 +189,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 
 			// scan the source paths
 			foreach (var p in sources) {
-				var (tp, te) = await ProcessSourceDirectory(new Uri(p.Path), p.Id, seen);
+				var (tp, te) = await ProcessSourceDirectory(p.Path, p.Id, seen);
 				processed += tp;
 				errors += te;
 			}
@@ -203,7 +201,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 
 				// now, go through all the files and remove ones we didn't see
 				foreach (var f in context.Songs) {
-					if (!seen.Contains(new Uri(new Uri(f.SourcePath), f.RelativePath))) {
+					if (!seen.Contains(f.Url)) {
 						context.Songs.Remove(f);
 					}
 				}
@@ -238,7 +236,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 
 			// read all the info about the file
 			try {
-				fr = await _infoRetriever.ReadFile(file);
+				fr = await _infoRetriever.ReadFileInfo(file);
 			} catch (Exception e) {
 				_logger?.LogError(e, "Error reading file information for file {file}", file);
 				errors++;
@@ -266,7 +264,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 	{
 		using var context = await _contextFactory.CreateDbContextAsync();
 
-		var relativePath = sourceUri.MakeRelativeUri(fileUri).ToString();
+		var relativePath = sourceUri.MakeRelativeUri(fileUri);
 		var song         = await context.Songs.FindAsync(sourceId, relativePath);
 
 		// add this file to the list of files we saw
@@ -295,7 +293,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 			song.AlbumArtistsSort = albumArtistsSort;
 			song.Performers       = performers;
 			song.PerformersSort   = performersSort;
-			song.Title            = Clean(fileInfo.Tag.Title) ?? Path.GetFileNameWithoutExtension(relativePath);
+			song.Title            = Clean(fileInfo.Tag.Title) ?? Path.GetFileNameWithoutExtension(relativePath.ToString());
 			song.TrackNumber      = fileInfo.Tag.Track == 0 ? null : (int)fileInfo.Tag.Track;
 			song.TrackCount       = fileInfo.Tag.TrackCount == 0 ? null : (int)fileInfo.Tag.TrackCount;
 			song.DiscNumber       = fileInfo.Tag.Disc == 0 ? null : (int)fileInfo.Tag.Disc;
@@ -315,7 +313,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 				AlbumArtistsSort = albumArtistsSort,
 				Performers       = performers,
 				PerformersSort   = performersSort,
-				Title            = Clean(fileInfo.Tag.Title) ?? Path.GetFileNameWithoutExtension(relativePath),
+				Title            = Clean(fileInfo.Tag.Title) ?? Path.GetFileNameWithoutExtension(relativePath.ToString()),
 				TrackNumber      = fileInfo.Tag.Track == 0 ? null : (int)fileInfo.Tag.Track,
 				TrackCount       = fileInfo.Tag.TrackCount == 0 ? null : (int)fileInfo.Tag.TrackCount,
 				DiscNumber       = fileInfo.Tag.Disc == 0 ? null : (int)fileInfo.Tag.Disc,

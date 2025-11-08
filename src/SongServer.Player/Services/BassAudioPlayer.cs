@@ -4,7 +4,7 @@ using ManagedBass;
 using ManagedBass.Opus;
 using Microsoft.Extensions.Options;
 using SongServer.Configuration;
-using SongServer.Services.Smb;
+using SongServer.Services.Library;
 
 namespace SongServer.Services;
 
@@ -20,7 +20,7 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 	private TimeSpan _lastPos = TimeSpan.Zero;
 	private bool _disposed = false;
 
-	public BassAudioPlayer(SmbFileClient smbClient, ILogger<BassAudioPlayer> logger, IOptions<PlayerOptions> options, LibraryService library) : base(logger, smbClient)
+	public BassAudioPlayer(FileInformationRetriever retriever, ILogger<BassAudioPlayer> logger, IOptions<PlayerOptions> options, LibraryService library) : base(logger, retriever)
 	{
 		_logger  = logger;
 		_library = library;
@@ -145,13 +145,12 @@ internal class BassAudioPlayer : AudioPlayer, IDisposable
 			_logger.LogInformation("Loading file: {reference}", song);
 
 			var dbSong    = await _library.GetSong(song) ?? throw new InvalidOperationException("The specified song does not exist.");
-			var songPath  = Path.Combine(dbSong.SourcePath, dbSong.RelativePath);
-			var streamUri = new UriBuilder(Uri.UriSchemeHttp, "localhost", 5000, $"/library/stream/{Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(song)))}").Uri; // TODO: don't hard-code this
+			var streamUri = new UriBuilder(Uri.UriSchemeHttp, "localhost", 5000, $"/library/stream/{Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(song)))}").Uri; // TODO: don't hard-code the port here
 
 			// Create a BASS stream from the file path
-			_stream = Path.GetExtension(songPath) switch {
-				".opus" => BassOpus.CreateStream(streamUri.ToString(), 0, BassFlags.Default /*| BassFlags.BassLoudnessCurrent*/, (_, _, _) => { }),
-				_ => Bass.CreateStream(streamUri.ToString(), 0, BassFlags.Default /*| BassFlags.BassLoudnessCurrent*/, (_, _, _) => { }),
+			_stream = Path.GetExtension(dbSong.Url.ToString()) switch {
+				".opus" => BassOpus.CreateStream(streamUri.ToString(), 0, BassFlags.Default, (_, _, _) => { }),
+				_ => Bass.CreateStream(streamUri.ToString(), 0, BassFlags.Default, (_, _, _) => { }),
 			};
 
 			if (_stream == 0) {

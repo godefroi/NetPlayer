@@ -1,13 +1,13 @@
-using SongServer.Services.Smb;
+using SongServer.Services.Library;
 
 namespace SongServer.Services;
 
-internal abstract class AudioPlayer(ILogger logger, SmbFileClient smbClient)
+internal abstract class AudioPlayer(ILogger logger, FileInformationRetriever fileInfoRetriever)
 {
 	private readonly Lock _stateLock = new();
 	private readonly ILogger _logger = logger;
 	private readonly Queue<SongReference> _queue = [];
-	private readonly SmbFileClient _smbClient = smbClient;
+	private readonly FileInformationRetriever _fileInfoRetriever = fileInfoRetriever;
 	private Playlist _list = Playlist.Empty;
 	private PlaylistState _state = PlaylistState.Empty;
 	private SongMetadata? _currentSong = null;
@@ -179,17 +179,7 @@ internal abstract class AudioPlayer(ILogger logger, SmbFileClient smbClient)
 
 	protected abstract Task<bool> Play(SongReference song);
 
-	protected Stream GetStream(Data.Song song)
-	{
-		var filePath = Path.Combine(song.SourcePath, song.RelativePath);
-
-		// TODO: here we could return a FileStream if the file was accessible locally, or whatever
-
-		// open the file from SMB
-		var (store, handle) = _smbClient.OpenRead(filePath);
-
-		return new SmbFileStream(store, handle);
-	}
+	protected Stream GetStream(Data.Song song) => _fileInfoRetriever.OpenFileStream(song.Url);
 
 	internal class PlaylistState
 	{

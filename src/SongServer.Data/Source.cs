@@ -4,7 +4,7 @@ public class Source
 {
 	public long Id { get; set; }
 
-	public required string Path { get; set; }
+	public required Uri Path { get; set; }
 }
 
 internal class SourceConfiguration : IEntityTypeConfiguration<Source>
@@ -21,6 +21,9 @@ internal class SourceConfiguration : IEntityTypeConfiguration<Source>
 
 		builder.Property(s => s.Path)
 			.HasColumnName("path")
-			.IsRequired();
+			.IsRequired()
+			.HasConversion(
+				v => v.ToString(),
+				v => new Uri(v, UriKind.Absolute));
 	}
 }

@@ -2,11 +2,11 @@ namespace SongServer.Data;
 
 public class Song
 {
-	public string SourcePath { get { return Source.Path; } }
+	public Uri SourcePath { get { return Source.Path; } }
 
-	public required string RelativePath { get; set; }
+	public required Uri RelativePath { get; set; }
 
-	public Uri Url { get { return ConvertToUri(Path.Combine(SourcePath, RelativePath)); } }
+	public Uri Url { get { return new Uri(Source.Path, RelativePath); } }
 
 	public required string Title { get; set; }
 
@@ -41,32 +41,6 @@ public class Song
 	public List<string>? Performers { get; set; }
 
 	public List<string>? PerformersSort { get; set; }
-
-	public static Uri ConvertToUri(string path)
-	{
-		// If it's already a valid URI, use it
-		if (Uri.TryCreate(path, UriKind.Absolute, out var uri)) {
-			return uri;
-		}
-
-		// Handle Windows UNC paths (\\server\share\path)
-		if (path.StartsWith(@"\\")) {
-			return new Uri($"file://{path.Replace('\\', '/')}");
-		}
-
-		// Handle Unix UNC paths (//server/share/path)
-		if (path.StartsWith("//")) {
-			return new Uri($"file:{path}");
-		}
-
-		// Handle regular file system paths
-		try {
-			return new Uri(Path.GetFullPath(path));
-		} catch {
-			// If all else fails, try to create as relative URI
-			return new Uri(path, UriKind.RelativeOrAbsolute);
-		}
-	}
 }
 
 internal class SongConfiguration : IEntityTypeConfiguration<Song>
@@ -91,7 +65,10 @@ internal class SongConfiguration : IEntityTypeConfiguration<Song>
 
 		builder.Property(s => s.RelativePath)
 			.HasColumnName("path")
-			.IsRequired();
+			.IsRequired()
+			.HasConversion(
+				v => v.ToString(),
+				v => new Uri(v, UriKind.Relative));
 
 		builder.Property(s => s.FileHash)
 			.HasColumnName("hash")
