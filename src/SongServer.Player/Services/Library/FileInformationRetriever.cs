@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using Microsoft.AspNetCore.Http.Extensions;
 using SMBLibrary.Client;
 using SongServer.Services.Smb;
 
@@ -117,8 +118,8 @@ public class FileInformationRetriever(SmbFileClient smbClient)
 		var server = uri.Host;
 		var share  = uri.Segments[1].TrimEnd('/');
 		var path   = string.Concat(uri.Segments[2..]).TrimEnd('/');
-		
-		return (server, share, path);
+
+		return (Uri.UnescapeDataString(server), Uri.UnescapeDataString(share), Uri.UnescapeDataString(path));
 	}
 }
 

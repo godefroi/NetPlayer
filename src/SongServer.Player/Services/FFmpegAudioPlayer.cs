@@ -109,11 +109,9 @@ internal class FFmpegAudioPlayer : AudioPlayer, IDisposable
 			await Stop();
 		}
 
-		var dbSong = await _library.GetSong(song) ?? throw new InvalidOperationException("The specified song does not exist.");
+		var dbSong = await _library.GetSong(song) ?? throw new InvalidOperationException($"The specified song ({song.RelativePath}) does not exist in source {song.SourceId}.");
 
 		// get the stream that'll read the audio data
-		//var inputStream = Stream.Null;
-		//_inputStream = File.OpenRead(@"\\vmhost.local\media\Audio\Soundtracks\Descent II\02-Title.opus");
 		_inputStream = GetStream(dbSong);
 
 		// make a new AudioConverter
