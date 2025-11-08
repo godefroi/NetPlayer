@@ -101,12 +101,13 @@ public unsafe class AudioConverter : IDisposable
 		var codecContext = ffmpeg.avcodec_alloc_context3(codec);
 		var result       = 0;
 		var outputFormat = outputSpec.Format.AsAVSampleFormat();
-		var outputLayout = &codecContext->ch_layout;
 
-		if (outputLayout->nb_channels != outputSpec.Channels) {
-			AVChannelLayout newLayout = default;
-			ffmpeg.av_channel_layout_default(&newLayout, 2);
-			outputLayout = &newLayout;
+		AVChannelLayout outputLayout = default;
+
+		if (codecContext->ch_layout.nb_channels != outputSpec.Channels) {
+			ffmpeg.av_channel_layout_default(&outputLayout, 2);
+		} else {
+			outputLayout = codecContext->ch_layout;
 		}
 
 		//LogCodecParameters(codec, codecParams);
@@ -135,13 +136,13 @@ public unsafe class AudioConverter : IDisposable
 				 codecContext->ch_layout.nb_channels,
 				 codecContext->sample_rate,
 				 outputFormat,
-				 outputLayout->nb_channels,
+				 outputLayout.nb_channels,
 				 outputSpec.SampleFrequency);
 
 			// setup resampler for PCM conversion
 			result = ffmpeg.swr_alloc_set_opts2(
 				&swrContext,
-				outputLayout,               // out channel layout (was &codecContext->ch_layout)
+				&outputLayout,              // out channel layout (was &codecContext->ch_layout)
 				outputFormat,               // out sample format (was AVSampleFormat.AV_SAMPLE_FMT_S16, // PCM 16-bit)
 				outputSpec.SampleFrequency, // out sample rate (was codecContext->sample_rate)
 				&codecContext->ch_layout,   // in channel layout
@@ -183,14 +184,14 @@ public unsafe class AudioConverter : IDisposable
 				// receive decoded frames from the codec
 				while (!cancellationToken.IsCancellationRequested && ffmpeg.avcodec_receive_frame(codecContext, decodedFrame) >= 0) {
 					// Convert to PCM
-					resampledFrame->ch_layout   = *outputLayout;
+					resampledFrame->ch_layout   = outputLayout;
 					resampledFrame->sample_rate = outputSpec.SampleFrequency; // was frame->sample_rate;
 					resampledFrame->format      = (int)outputFormat; // was (int)AVSampleFormat.AV_SAMPLE_FMT_S16;
 	
 					ffmpeg.swr_convert_frame(swrContext, resampledFrame, decodedFrame);
 
 					// figure out how much data we're dealing with
-					var dataSize = ffmpeg.av_samples_get_buffer_size(null, outputLayout->nb_channels, resampledFrame->nb_samples, (AVSampleFormat)resampledFrame->format, 1);
+					var dataSize = ffmpeg.av_samples_get_buffer_size(null, outputLayout.nb_channels, resampledFrame->nb_samples, (AVSampleFormat)resampledFrame->format, 1);
 
 					// create a span for our source
 					var sourceSpan = new Span<byte>(resampledFrame->data[0], dataSize);
@@ -344,10 +345,12 @@ public unsafe class AudioConverter : IDisposable
 		}
 
 		if (_mallocBuffer != null) {
+			Console.WriteLine("About to free _mallocBuffer");
 			fixed(void* ptr = &_mallocBuffer) {
 				ffmpeg.av_free(ptr);
 			}
 			_mallocBuffer = null;
+			Console.WriteLine("Freed _mallocBuffer");
 		}
 
 		// TODO: set large fields to null
