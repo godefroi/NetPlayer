@@ -8,6 +8,7 @@ using SongServer.Services.Smb;
 using SongServer.Audio.Sdl;
 using Microsoft.Extensions.Options;
 using SongServer.Services.Library;
+using Microsoft.Extensions.FileProviders;
 
 namespace SongServer;
 
@@ -53,8 +54,24 @@ internal class Program
 
 		await ExecutePendingMigrations(app.Services);
 
-		var logger = app.Services.GetRequiredService<ILogger<Program>>();
-		var pOpts  = app.Services.GetRequiredService<IOptions<PlayerOptions>>().Value;
+		//Console.WriteLine(builder.Environment.WebRootPath);
+		// enable static file hosting (for the UI)
+		//var fileProvider = new PhysicalFileProvider(Path.Combine(builder.Environment.ContentRootPath, "wwwroot", "wwwroot")); // TODO: the first wwwroot should be something better, like _ui or something
+
+//app.MapStaticAssets(@"C:\Users\MarkParker\source\repos\song-server\src\SongServer.Player\wwwroot\SongServer.Ui.staticwebassets.endpoints.json");
+		// app.UseRouting();
+		// app.UseDefaultFiles(new DefaultFilesOptions() {
+		// 	FileProvider = fileProvider,
+		// 	DefaultFileNames = ["index.html"],
+		// });
+		// var sfo = new StaticFileOptions() {
+		// 	FileProvider = fileProvider,
+		// };
+		// sfo.ContentTypeProvider.TryAddMapping(".dat", "application/octet-stream");
+		// app.UseStaticFiles(sfo);
+
+		app.MapStaticAssets();
+		app.MapFallbackToFile("index.html");
 
 		PlayerHandlers.Map(app);
 		LibraryHandlers.Map(app);
@@ -62,10 +79,19 @@ internal class Program
 
 		app.MapHub<PlayerHub>("/player/hub");
 
+		// add a fallback route for blazor client-side routing
+		//app.MapFallbackToFile("index.html");
+		// app.MapFallbackToFile("index.html", new StaticFileOptions() {
+		// 	FileProvider = fileProvider,
+		// });
+
 		app.UseCors(builder => builder
 			.AllowAnyOrigin()
 			.AllowAnyHeader()
 			.AllowAnyMethod());
+
+		var logger = app.Services.GetRequiredService<ILogger<Program>>();
+		var pOpts  = app.Services.GetRequiredService<IOptions<PlayerOptions>>().Value;
 
 		SdlAudioSystem.Initialize(
 			app.Services.GetRequiredService<ILogger<SdlAudioSystem>>(),
