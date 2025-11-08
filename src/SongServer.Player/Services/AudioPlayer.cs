@@ -17,6 +17,8 @@ internal abstract class AudioPlayer(ILogger logger, FileInformationRetriever fil
 
 	public event EventHandler<StateChangedEventArgs>? StateChanged;
 
+	public event EventHandler? PlaylistStateChanged;
+
 	public async Task<bool> Play()
 	{
 		State state;
@@ -51,6 +53,9 @@ internal abstract class AudioPlayer(ILogger logger, FileInformationRetriever fil
 
 			// add the next song to the queue
 			_queue.Enqueue(_list.Entries[_state.CurrentIndex]);
+
+			// we advanced to the next song, so we should let anyone who cares know about that
+			PlaylistStateChanged?.Invoke(this, EventArgs.Empty);
 		}
 
 		// now, play the next song in the queue

@@ -32,32 +32,6 @@ public class Playlist
 
 	public string Hash { get; }
 
-	private static Uri ConvertToUri(string path)
-	{
-		// If it's already a valid URI, use it
-		if (Uri.TryCreate(path, UriKind.Absolute, out var uri)) {
-			return uri;
-		}
-
-		// Handle Windows UNC paths (\\server\share\path)
-		if (path.StartsWith(@"\\")) {
-			return new Uri($"file://{path.Replace('\\', '/')}");
-		}
-
-		// Handle Unix UNC paths (//server/share/path)
-		if (path.StartsWith("//")) {
-			return new Uri($"file:{path}");
-		}
-
-		// Handle regular file system paths
-		try {
-			return new Uri(Path.GetFullPath(path));
-		} catch {
-			// If all else fails, try to create as relative URI
-			return new Uri(path, UriKind.RelativeOrAbsolute);
-		}
-	}
-
 	public void Shuffle(int seed)
 	{
 		var random = new Random(seed);

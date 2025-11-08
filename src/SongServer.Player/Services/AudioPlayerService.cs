@@ -40,12 +40,18 @@ internal class AudioPlayerService(AudioPlayer player, IDbContextFactory<LibraryC
 		}
 
 		_player.SetPlaylist(playlist, state);
+		_player.PlaylistStateChanged += (_, _) => { _ = SavePlaylistState(); };
 	}
 
 	public async Task StopAsync(CancellationToken cancellationToken)
 	{
 		await _player.Stop();
 
+		await SavePlaylistState(cancellationToken);
+	}
+
+	private async Task SavePlaylistState(CancellationToken cancellationToken = default)
+	{
 		using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
 		await context.State.SetState("playlist_state", _player.GetPlaylistState(), cancellationToken);
