@@ -58,6 +58,13 @@ internal class Program
 
 		await ExecutePendingMigrations(app.Services);
 
+		// to host the frontend, publish the UI project into this directory, like so:
+		// (from the UI dir) dotnet publish -c Debug -o ../SongServer.Player
+		// (or from the player dir) dotnet publish ../SongServer.Ui -c Debug -o .
+		// this should result in the manifest (the .json file) being in the AppContext.BaseDirectory folder
+		// and a wwwroot/ folder underneath the BaseDirectory folder
+		// (and the wwwroot folder just so happens to be the web root path)
+		logger.LogInformation("Web root path: {webRoot}", app.Environment.WebRootPath);
 		if (File.Exists(Path.Combine(AppContext.BaseDirectory, "SongServer.Ui.staticwebassets.endpoints.json"))) {
 			logger.LogInformation("Mapping static web assets for frontend UI");
 			app.MapStaticAssets("SongServer.Ui.staticwebassets.endpoints.json");

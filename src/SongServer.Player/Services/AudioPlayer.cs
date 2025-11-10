@@ -110,7 +110,7 @@ internal abstract class AudioPlayer(ILogger logger, FileInformationRetriever fil
 
 				case State.Playing:
 					// we weren't playing (probably?), now we are
-					_currentSong ??= song;
+					_currentSong = song ?? _currentSong;
 					break;
 
 				default:
