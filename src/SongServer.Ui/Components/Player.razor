@@ -1,6 +1,7 @@
 ﻿@using SongServer.Services
 @using Microsoft.AspNetCore.SignalR.Client
 @inject PlayerClient _player
+@inject HubConnectionService _hubService
 @implements IAsyncDisposable
 
 <div class="player-container">
@@ -46,30 +47,28 @@
 
 @code {
 	private State _state;
-	private HubConnection? _hub;
 	private TimeSpan? _songPosition;
 	private SongMetadata? _songMetadata;
 
-	protected override async Task OnInitializedAsync()
+	protected override Task OnInitializedAsync()
 	{
-		_hub = new HubConnectionBuilder()
-			.WithUrl("http://localhost:5000/player/hub")
-			.WithStatefulReconnect()
-			.WithAutomaticReconnect([TimeSpan.FromSeconds(0), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)])
-			.Build();
+		var hub = _hubService.HubConnection;
+		if (hub == null) {
+			return Task.CompletedTask;
+		}
 
-		_hub.On<State, TimeSpan?>("UpdatePosition", (state, position) => {
+		hub.On<State, TimeSpan?>("UpdatePosition", (state, position) => {
 			_state = state;
 			_songPosition = position;
 			InvokeAsync(StateHasChanged);
 		});
 
-		_hub.On<SongMetadata?>("UpdateMedia", song => {
+		hub.On<SongMetadata?>("UpdateMedia", song => {
 			_songMetadata = song;
 			InvokeAsync(StateHasChanged);
 		});
 
-		await _hub.StartAsync();
+		return Task.CompletedTask;
 	}
 
 	private async Task Play()
@@ -114,8 +113,7 @@
 
 	public async ValueTask DisposeAsync()
 	{
-		if (_hub is not null) {
-			await _hub.DisposeAsync();
-		}
+		// No need to dispose the hub connection here since it's managed centrally
+		await ValueTask.CompletedTask;
 	}
 }

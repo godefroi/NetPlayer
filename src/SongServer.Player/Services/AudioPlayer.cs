@@ -9,7 +9,6 @@ internal abstract class AudioPlayer(ILogger logger, FileInformationRetriever fil
 	private readonly Queue<SongReference> _queue = [];
 	private readonly FileInformationRetriever _fileInfoRetriever = fileInfoRetriever;
 	private Playlist _list = Playlist.Empty;
-	private PlaylistState _state = PlaylistState.Empty;
 	private SongMetadata? _currentSong = null;
 	private TimeSpan _currentPosition = TimeSpan.FromSeconds(-1);
 	private TimeSpan _lastReportedPos = TimeSpan.FromSeconds(-1);
@@ -45,14 +44,9 @@ internal abstract class AudioPlayer(ILogger logger, FileInformationRetriever fil
 	{
 		// if we have no songs in the queue, then put the next song from
 		// the playlist into the queue, if there are any songs in it
-		if (_queue.Count == 0 && _list.Entries.Count > 0) {
-			// check if the index is now out of bounds
-			if (++_state.CurrentIndex >= _list.Entries.Count) {
-				_state.CurrentIndex = 0;
-			}
-
+		if (_queue.Count == 0 && _list.Count > 0) {
 			// add the next song to the queue
-			_queue.Enqueue(_list.Entries[_state.CurrentIndex]);
+			_queue.Enqueue(_list.Next());
 
 			// we advanced to the next song, so we should let anyone who cares know about that
 			PlaylistStateChanged?.Invoke(this, EventArgs.Empty);
@@ -72,15 +66,12 @@ internal abstract class AudioPlayer(ILogger logger, FileInformationRetriever fil
 		}
 	}
 
-	public void SetPlaylist(Playlist list, PlaylistState state)
+	public void SetPlaylist(Playlist list)
 	{
 		lock (_stateLock) {
 			_list  = list;
-			_state = state;
 		}
 	}
-
-	public PlaylistState GetPlaylistState() => _state;
 
 	public (State State, SongMetadata? Song, TimeSpan? Position) GetState()
 	{
@@ -185,16 +176,4 @@ internal abstract class AudioPlayer(ILogger logger, FileInformationRetriever fil
 	protected abstract Task<bool> Play(SongReference song);
 
 	protected Stream GetStream(Data.Song song) => _fileInfoRetriever.OpenFileStream(song.Url);
-
-	internal class PlaylistState
-	{
-		public static PlaylistState Empty { get; } = new()
-		{
-			Hash = string.Empty
-		};
-
-		public required string Hash { get; init; }
-		public int? ShuffleSeed { get; init; }
-		public int CurrentIndex { get; set; } = -1;
-	}
 }

@@ -1,13 +1,23 @@
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace SongServer.Data;
 
 public static class StateExtensions
 {
-	public static async Task<T?> GetState<T>(this DbSet<State> set, string key, CancellationToken cancellationToken = default)
+	public static async Task<T?> GetStateAsync<T>(this DbSet<State> set, string key, CancellationToken cancellationToken = default)
 	{
 		var stateRow = await set.FindAsync([key], cancellationToken);
+
+		if (stateRow == null || string.IsNullOrWhiteSpace(stateRow.Value)) {
+			return default;
+		}
+
+		return JsonSerializer.Deserialize<T>(stateRow.Value);
+	}
+
+	public static T? GetState<T>(this DbSet<State> set, string key)
+	{
+		var stateRow = set.Find([key]);
 
 		if (stateRow == null || string.IsNullOrWhiteSpace(stateRow.Value)) {
 			return default;

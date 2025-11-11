@@ -62,6 +62,9 @@ public class PlayerClient(HttpClient httpClient)
 	public async Task<IEnumerable<SongMetadata>> GetPlaylistAsync(CancellationToken cancellationToken = default) =>
 		await _httpClient.GetFromJsonAsync<IEnumerable<SongMetadata>>("playlist/", cancellationToken).ConfigureAwait(false) ?? [];
 
+	public async Task<PlaylistView?> GetPlaylistViewAsync(CancellationToken cancellationToken = default) =>
+		await _httpClient.GetFromJsonAsync<PlaylistView>("player/playlist", cancellationToken).ConfigureAwait(false);
+
 	public async Task<OperationResult> AddToPlaylistAsync(SongMetadata request, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(request);

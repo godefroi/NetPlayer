@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SongServer.Data;
+using SongServer.Services;
 
 namespace SongServer.Handlers;
 
@@ -42,7 +43,7 @@ internal class PlaylistHandlers
 		}
 	}
 
-	public static async Task<IResult> AddToPlaylist([FromBody]SongMetadata request, LibraryContext context, ILogger<PlaylistHandlers> logger)
+	public static async Task<IResult> AddToPlaylist([FromBody]SongMetadata request, LibraryContext context, Playlist playlist, ILogger<PlaylistHandlers> logger)
 	{
 		if (request == null) {
 			return Results.BadRequest("Request body is required");
@@ -66,13 +67,16 @@ internal class PlaylistHandlers
 
 			logger.LogInformation("Added file {relativePath} to playlist", newFile.Entity.RelativePath);
 
+			// also add it to the playlist; this will have the effect of reshuffling
+			playlist.Add(new SongReference(song.SourceId, song.RelativePath));
+
 			return Results.Ok(new { message = "Added to playlist" });
 		} catch (Exception ex) {
 			return Results.Problem("Error adding to playlist: " + ex.Message);
 		}
 	}
 
-	public static async Task<Results<Ok<OperationResult>, BadRequest<ProblemDetails>, NotFound<ProblemDetails>, ProblemHttpResult>> RemoveFromPlaylist([FromQuery]string artist, [FromQuery]string title, LibraryContext context)
+	public static async Task<Results<Ok<OperationResult>, BadRequest<ProblemDetails>, NotFound<ProblemDetails>, ProblemHttpResult>> RemoveFromPlaylist([FromQuery]string artist, [FromQuery]string title, LibraryContext context, Playlist playlist)
 	{
 		try {
 			var request = new SongMetadata([artist], string.Empty, title, null, null, null, TimeSpan.Zero);
@@ -90,6 +94,8 @@ internal class PlaylistHandlers
 
 			context.Playlist.Remove(entry);
 			await context.SaveChangesAsync();
+
+			playlist.Remove(new SongReference(song.SourceId, song.RelativePath));
 
 			return TypedResults.Ok(new OperationResult("Removed from playlist"));
 		} catch (Exception ex) {

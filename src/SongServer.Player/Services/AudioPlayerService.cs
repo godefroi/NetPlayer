@@ -5,9 +5,10 @@ using SongServer.Data;
 
 namespace SongServer.Services;
 
-internal class AudioPlayerService(AudioPlayer player, IDbContextFactory<LibraryContext> contextFactory, IOptions<PlayerOptions> options, ILogger<AudioPlayerService> logger) : IHostedService
+internal class AudioPlayerService(AudioPlayer player, Playlist playlist, IDbContextFactory<LibraryContext> contextFactory, IOptions<PlayerOptions> options, ILogger<AudioPlayerService> logger) : IHostedService
 {
 	private readonly AudioPlayer _player = player;
+	private readonly Playlist _playlist = playlist;
 	private readonly IOptions<PlayerOptions> _options = options;
 	private readonly IDbContextFactory<LibraryContext> _contextFactory = contextFactory;
 	private readonly ILogger _logger = logger;
@@ -21,25 +22,23 @@ internal class AudioPlayerService(AudioPlayer player, IDbContextFactory<LibraryC
 			.AsEnumerable()
 			.Select(s => new SongReference(s.SourceId, s.RelativePath));
 
-		var playlist = new Playlist(playlistSongs);
+		var state = await context.State.GetStateAsync<PlaylistState>("playlist_state", cancellationToken);
 
-		var state = await context.State.GetState<AudioPlayer.PlaylistState>("playlist_state", cancellationToken);
-
-		if (state == null || state.Hash != playlist.Hash) {
-			state = new AudioPlayer.PlaylistState() {
-				Hash        = playlist.Hash,
-				ShuffleSeed = Random.Shared.Next(),
-			};
+		if (state == null || state.Hash != _playlist.Hash) {
+			state = new(
+				_playlist.Hash,
+				Random.Shared.Next()
+			);
 		}
 
-		_logger.LogInformation("Loaded {count} entries from playlist.", playlist.Entries.Count);
+		_logger.LogInformation("Loaded {count} entries from playlist.", _playlist.Count);
 
 		if (state.ShuffleSeed != null) {
-			playlist.Shuffle(state.ShuffleSeed.Value);
+			_playlist.Shuffle(state.ShuffleSeed.Value, state.CurrentIndex);
 			_logger.LogInformation("Shuffled playlist with seed {seed}.", state.ShuffleSeed);
 		}
 
-		_player.SetPlaylist(playlist, state);
+		_player.SetPlaylist(_playlist);
 		_player.PlaylistStateChanged += (_, _) => { _ = SavePlaylistState(); };
 	}
 
@@ -54,7 +53,14 @@ internal class AudioPlayerService(AudioPlayer player, IDbContextFactory<LibraryC
 	{
 		using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
-		await context.State.SetState("playlist_state", _player.GetPlaylistState(), cancellationToken);
+		var state = new PlaylistState(_playlist.Hash, _playlist.ShuffleSeed, _playlist.CurrentIndex);
+
+		await context.State.SetState("playlist_state", state, cancellationToken);
 		await context.SaveChangesAsync(cancellationToken);
+	}
+
+	internal record PlaylistState(string Hash, int? ShuffleSeed = null, int? CurrentIndex = null)
+	{
+		public static PlaylistState Empty { get; } = new(string.Empty);
 	}
 }

@@ -1,0 +1,85 @@
+@using SongServer
+@using SongServer.Services
+@using System.Threading
+@using Microsoft.AspNetCore.SignalR.Client
+@inject PlayerClient _player
+@inject HubConnectionService _hubService
+
+<div class="playlist-snapshot">
+	<h5>Now Playing</h5>
+	
+	@if (_isLoading) {
+		<p><em>Loading playlist...</em></p>
+	} else if (_playlistView == null) {
+		<p><em>No playlist data available</em></p>
+	} else {
+		<div class="playlist-items" style="max-height: 600px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;">
+			@if (_playlistView.Previous.Any()) {
+				<div class="playlist-section">
+					<div class="section-label">Previously Played</div>
+					@foreach (var item in _playlistView.Previous) {
+						<div class="playlist-item previous">
+							@GetDisplayName(item)
+						</div>
+					}
+				</div>
+			}
+
+			@if (_playlistView.Current != null) {
+				<div class="playlist-item current">
+					<strong>▶ @GetDisplayName(_playlistView.Current)</strong>
+				</div>
+			}
+
+			@if (_playlistView.Upcoming.Any()) {
+				<div class="playlist-section">
+					<div class="section-label">Up Next</div>
+					@foreach (var item in _playlistView.Upcoming) {
+						<div class="playlist-item upcoming">
+							@GetDisplayName(item)
+						</div>
+					}
+				</div>
+			}
+
+			@if (!_playlistView.Previous.Any() && _playlistView.Current == null && !_playlistView.Upcoming.Any()) {
+				<p style="padding: 10px; margin: 0;"><em>Playlist is empty</em></p>
+			}
+		</div>
+	}
+</div>
+
+@code {
+	private PlaylistView? _playlistView;
+	private bool _isLoading = true;
+
+	protected override async Task OnInitializedAsync()
+	{
+		await RefreshAsync();
+
+		var hub = _hubService.HubConnection;
+		if (hub != null) {
+			hub.On<SongMetadata?>("UpdateMedia", song => {
+				_ = RefreshAsync();
+			});
+		}
+	}
+
+	public async Task RefreshAsync()
+	{
+		try {
+			_isLoading = true;
+			_playlistView = await _player.GetPlaylistViewAsync();
+		} catch (Exception ex) {
+			System.Diagnostics.Debug.WriteLine($"Error loading playlist view: {ex.Message}");
+		} finally {
+			_isLoading = false;
+			await InvokeAsync(StateHasChanged);
+		}
+	}
+
+	private string GetDisplayName(SongMetadata song)
+	{
+		return $"{song.ArtistOrVarious()} - {song.Title}";
+	}
+}

@@ -8,7 +8,6 @@ using SongServer.Services.Smb;
 using SongServer.Audio.Sdl;
 using Microsoft.Extensions.Options;
 using SongServer.Services.Library;
-using Microsoft.Extensions.FileProviders;
 
 namespace SongServer;
 
@@ -26,6 +25,17 @@ internal class Program
 		//builder.Services.AddSingleton<AudioPlayer, BassAudioPlayer>();
 		builder.Services.AddSingleton<AudioPlayer, FFmpegAudioPlayer>();
 		builder.Services.AddSingleton<LibraryService>();
+		builder.Services.AddSingleton(sp => {
+			using var context = sp.GetRequiredService<IDbContextFactory<LibraryContext>>().CreateDbContext();
+			var playlistSongs = context.Playlist
+				.AsNoTracking()
+				.AsEnumerable()
+				.Select(s => new SongReference(s.SourceId, s.RelativePath));
+
+			var playlist = new Playlist(playlistSongs);
+
+			return playlist;
+		});
 		builder.Services.AddTransient<FileInformationRetriever>();
 		builder.Services.AddDbContextFactory<LibraryContext>();
 

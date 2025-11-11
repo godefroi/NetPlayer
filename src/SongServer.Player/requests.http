@@ -30,3 +30,6 @@ GET http://localhost:5000/playlist
 
 ###
 POST http://localhost:5000/library/refresh
+
+###
+GET http://localhost:5000/player/playlist
