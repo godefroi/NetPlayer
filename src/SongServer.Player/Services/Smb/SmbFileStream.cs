@@ -8,13 +8,15 @@ internal class SmbFileStream : Stream
 	private readonly ISMBFileStore _store;
 	private readonly object _handle;
 	private readonly Lazy<long> _length;
+	private readonly bool _ownsHandle;
 	private long _position = 0;
 	private bool _disposed = false;
 
-	public SmbFileStream(ISMBFileStore store, object handle)
+	public SmbFileStream(ISMBFileStore store, object handle, bool ownsHandle = true)
 	{
 		_store = store;
 		_handle = handle;
+		_ownsHandle = ownsHandle;
 		_length = new(() => {
 			var fistat = _store.GetFileInformation(out var info, _handle, FileInformationClass.FileStandardInformation);
 
@@ -89,7 +91,7 @@ internal class SmbFileStream : Stream
 			return;
 		}
 
-		if (disposing) {
+		if (disposing && _ownsHandle) {
 			_store.CloseFile(_handle);
 		}
 

@@ -133,14 +133,14 @@ public class SmbFileClient(IOptions<SmbConnectionOptions> options, ILogger<SmbFi
 
 		smb ??= new SMB2Client();
 
-		if (!smb.Connect(server, SMBLibrary.SMBTransportType.DirectTCPTransport)) {
+		if (!smb.Connect(server, SMBTransportType.DirectTCPTransport)) {
 			throw new Exception($"Unable to connect to SMB server {server}");
 		}
 
 		var shareOpts = _options.Servers.FirstOrDefault(so => so.Server.Equals(server, StringComparison.InvariantCultureIgnoreCase));
 		var listat    = smb.Login(shareOpts?.Domain ?? string.Empty, shareOpts?.Username ?? string.Empty, shareOpts?.Password ?? string.Empty);
 
-		if (listat != SMBLibrary.NTStatus.STATUS_SUCCESS) {
+		if (listat != NTStatus.STATUS_SUCCESS) {
 			throw new Exception($"Failed to login to SMB server {server} with status {listat}");
 		}
 
@@ -154,7 +154,7 @@ public class SmbFileClient(IOptions<SmbConnectionOptions> options, ILogger<SmbFi
 		if (!_shares.TryGetValue(share, out var store)) {
 			store = client.TreeConnect(share, out var tcstat);
 
-			if (tcstat != SMBLibrary.NTStatus.STATUS_SUCCESS) {
+			if (tcstat != NTStatus.STATUS_SUCCESS) {
 				throw new Exception($"failed to connect to share with status {tcstat}");
 			}
 

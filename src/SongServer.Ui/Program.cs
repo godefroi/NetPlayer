@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Microsoft.Extensions.Options;
@@ -9,8 +8,7 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
 builder.Services.Configure<PlayerClientOptions>(builder.Configuration.GetSection(PlayerClientOptions.SectionName));
 
-builder.Services.PostConfigure<PlayerClientOptions>(options =>
-{
+builder.Services.PostConfigure<PlayerClientOptions>(options => {
 	if (options.ServerUri.ToString() == "about:blank") {
 		options.ServerUri = new Uri(builder.HostEnvironment.BaseAddress);
 	}

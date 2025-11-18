@@ -1,6 +1,6 @@
+using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
-using Microsoft.AspNetCore.Http.Extensions;
 using SMBLibrary.Client;
 using SongServer.Services.Smb;
 
@@ -52,21 +52,29 @@ public class FileInformationRetriever(SmbFileClient smbClient)
 			TagLib.Tag tag;
 			TimeSpan duration;
 			byte[] hash;
-			DateTime lastWrite;
-			long size;
 
-			var (store, handle) = _smbClient.OpenRead(server, share, path);
+			var (store, handle)   = _smbClient.OpenRead(server, share, path);
+			var (size, lastWrite) = GetFileInformation(store, handle);
+			var memBuffer         = ArrayPool<byte>.Shared.Rent((int)size);
+
 			try {
-				(size, lastWrite) = GetFileInformation(store, handle);
-				using var tagFile = TagLib.File.Create(new SmbFileAbstraction(store, handle, Path.GetFileName(fileUri.LocalPath)));
+				// we *know* we're gonna read the whole file; we might as well read it into memory directly
+				using var ms = new MemoryStream(memBuffer);
+				using var fs = new SmbFileStream(store, handle, true);
+
+				await fs.CopyToAsync(ms);
+
+				// hash the file
+				ms.Position = 0;
+				hash = await sha256.ComputeHashAsync(ms);
+
+				// read the tag (and duration) from the file
+				ms.Position = 0;
+				using var tagFile = TagLib.File.Create(new StreamAbstraction(ms, Path.GetFileName(fileUri.LocalPath)));
 				tag = tagFile.Tag;
 				duration = tagFile.Properties.Duration;
 			} finally {
-				store.CloseFile(handle);
-			}
-
-			using (var stream = _smbClient.OpenStream(server, share, path)) {
-				hash = await sha256.ComputeHashAsync(stream);
+				ArrayPool<byte>.Shared.Return(memBuffer);
 			}
 
 			return new(Convert.ToHexStringLower(hash), tag, duration, lastWrite, size);
@@ -120,6 +128,19 @@ public class FileInformationRetriever(SmbFileClient smbClient)
 		var path   = string.Concat(uri.Segments[2..]).TrimEnd('/');
 
 		return (Uri.UnescapeDataString(server), Uri.UnescapeDataString(share), Uri.UnescapeDataString(path));
+	}
+
+	internal class StreamAbstraction(Stream stream, string name) : TagLib.File.IFileAbstraction, IDisposable
+	{
+		public string Name => name;
+
+		public Stream ReadStream => stream;
+
+		public Stream WriteStream => throw new NotSupportedException("Writing to SMB files is not supported");
+
+		public void CloseStream(Stream stream) { }
+
+		public void Dispose() => GC.SuppressFinalize(this);
 	}
 }
 
