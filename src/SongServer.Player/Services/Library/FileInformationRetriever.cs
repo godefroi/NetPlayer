@@ -18,10 +18,7 @@ public class FileInformationRetriever(SmbFileClient smbClient)
 			var (server, share, path) = ParseUri(sourceUri);
 
 			return _smbClient.EnumerateFiles(server, share, path)
-				.Select(p => {
-					var fullPath = string.Concat(share, '/', path, '/', p.Replace(Path.DirectorySeparatorChar, '/'));
-					return new UriBuilder(_smbScheme, server) { Path = fullPath }.Uri;
-				});
+				.Select(p => new Uri(sourceUri, p.Replace(Path.DirectorySeparatorChar, '/')));
 		} else if (sourceUri.Scheme == _smbScheme) {
 			// smb scheme, but we're on Windows... we can treat it like we would a file://
 			// and then just turn them back into smb:// urls
