@@ -181,7 +181,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 		try {
 			using (var context = await _contextFactory.CreateDbContextAsync()) {
 				// get the list of library paths
-				sources = await context.Sources.Where(s => s.Id == 1).AsNoTracking().ToListAsync();
+				sources = await context.Sources.AsNoTracking().ToListAsync();
 			}
 
 			// scan the source paths
@@ -194,6 +194,7 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 			// remove any playlist items that no longer exist in the library
 			using (var context = await _contextFactory.CreateDbContextAsync()) {
 				// TODO: do that
+				// TODO: there's foreign keys with cascade deletes...
 			}
 		} finally {
 			_scanSemaphore.Release();
@@ -246,9 +247,6 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 			foreach (var f in context.Songs.Where(s => s.SourceId == sourceId)) {
 				if (!seenFiles.Contains(f.Url)) {
 					context.Songs.Remove(f);
-					_logger?.LogDebug("Removed unseen file {url}", f.Url);
-				} else {
-					_logger?.LogDebug("Not removing seen file {url}", f.Url);
 				}
 			}
 

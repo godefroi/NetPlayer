@@ -103,6 +103,36 @@ internal class Program
 		await SdlAudioSystem.Shutdown();
 	}
 
+	private static async Task RemoveBadDuplicatedSongs(WebApplication app)
+	{
+		using var scope = app.Services.CreateScope();
+		using var ctx = scope.ServiceProvider.GetRequiredService<LibraryContext>();
+
+		foreach (var g in ctx.Songs.AsEnumerable().GroupBy(s => s.Url)) {
+			var gCnt = g.Count();
+
+			if (gCnt == 1) {
+				continue;
+			} else if (gCnt != 2) {
+				Console.Error.WriteLine($"Group has count {gCnt}: {g.Key}");
+				continue;
+			}
+
+			var sCnt = g.Count(s => s.RelativePath.OriginalString.Contains("%20"));
+
+			if (sCnt != 1) {
+				Console.Error.WriteLine($"Group has %20 count of {sCnt}: {g.Key}");
+				continue;
+			}
+
+			ctx.Songs.Remove(g.Single(s => s.RelativePath.OriginalString.Contains("%20")));
+		}
+
+		var rCnt = await ctx.SaveChangesAsync();
+
+		Console.WriteLine($"Removed {rCnt} duplicated songs.");
+	}
+
 	private static async Task ExecutePendingMigrations(IServiceProvider serviceProvider, CancellationToken cancellationToken = default)
 	{
 		using var scope = serviceProvider.CreateScope();
