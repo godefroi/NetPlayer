@@ -56,7 +56,7 @@ public class FileInformationRetriever(SmbFileClient smbClient)
 
 			try {
 				// we *know* we're gonna read the whole file; we might as well read it into memory directly
-				using var ms = new MemoryStream(memBuffer, 0, (int)size, false);
+				using var ms = new MemoryStream(memBuffer, 0, (int)size, true);
 				using var fs = new SmbFileStream(store, handle, true);
 
 				await fs.CopyToAsync(ms);

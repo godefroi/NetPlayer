@@ -170,11 +170,8 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 	{
 		var updated   = 0;
 		var removed   = 0;
-		var remAlbum  = 0;
-		var remArtist = 0;
 		var processed = 0;
 		var errors    = 0;
-		var seen      = new HashSet<Uri>();
 		var start     = Stopwatch.GetTimestamp();
 
 		List<Source> sources;
@@ -184,30 +181,14 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 		try {
 			using (var context = await _contextFactory.CreateDbContextAsync()) {
 				// get the list of library paths
-				sources = await context.Sources.AsNoTracking().ToListAsync();
+				sources = await context.Sources.Where(s => s.Id == 1).AsNoTracking().ToListAsync();
 			}
 
 			// scan the source paths
 			foreach (var p in sources) {
-				var (tp, te) = await ProcessSourceDirectory(p.Path, p.Id, seen);
+				var (tp, te) = await ProcessSourceDirectory(p.Path, p.Id);
 				processed += tp;
 				errors += te;
-			}
-
-			if (errors > 0) {
-				_logger?.LogWarning("Errors occurred, skipping removal of stale items.");
-			} else {
-				using var context = await _contextFactory.CreateDbContextAsync();
-
-				// now, go through all the files and remove ones we didn't see
-				foreach (var f in context.Songs) {
-					if (!seen.Contains(f.Url)) {
-						context.Songs.Remove(f);
-					}
-				}
-
-				// save the delete changes
-				removed = await context.SaveChangesAsync();
 			}
 
 			// remove any playlist items that no longer exist in the library
@@ -218,21 +199,25 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 			_scanSemaphore.Release();
 		}
 
-		_logger?.LogInformation("Refresh complete in {dur}; {processed} processed, {updated} added/updated, {removed} removed. {remAlbum} albums and {remArtist} artists pruned.", Stopwatch.GetElapsedTime(start), seen.Count, updated, removed, remAlbum, remArtist);
+		_logger?.LogInformation("Refresh complete in {dur}; {processed} processed, {updated} added/updated.", Stopwatch.GetElapsedTime(start), updated, removed);
 	}
 
-	private async Task<(int Processed, int Errors)> ProcessSourceDirectory(Uri sourceUri, long sourceId, HashSet<Uri> foundFiles)
+	private async Task<(int Processed, int Errors)> ProcessSourceDirectory(Uri sourceUri, long sourceId)
 	{
 		_logger?.LogInformation("Starting scan of {sourcePath}", sourceUri);
 
-		var changes = 0;
-		var errors  = 0;
-		var total   = 0;
-		var files   = _infoRetriever.EnumerateFiles(sourceUri)
+		var seenFiles = new HashSet<Uri>();
+		var changes   = 0;
+		var errors    = 0;
+		var removed   = 0;
+		var files     = _infoRetriever.EnumerateFiles(sourceUri)
 			.Where(file => _extensions.Contains(Path.GetExtension(file.LocalPath), StringComparer.OrdinalIgnoreCase));
 
 		foreach (var file in files) {
 			FileRecord fr;
+
+			// record that we saw the file
+			seenFiles.Add(file);
 
 			// read all the info about the file
 			try {
@@ -245,30 +230,43 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 
 			// then process it into the database
 			try {
-				changes += await ProcessFile(sourceUri, sourceId, file, fr, foundFiles);
+				changes += await ProcessFile(sourceUri, sourceId, file, fr);
 			} catch (Exception e) {
 				errors++;
 				_logger?.LogError(e, "Error occurred while processing file {file}", file);
 			}
-
-			// count the file
-			total++;
 		}
 
-		_logger?.LogInformation("Scan complete for {path} ({processed} processed, {errors} errors, {changes} changes saved)", sourceUri, total, errors, changes);
+		if (errors > 0) {
+			_logger?.LogWarning("Errors occurred, skipping removal of stale items from source {source}.", sourceUri);
+		} else {
+			using var context = await _contextFactory.CreateDbContextAsync();
+
+			// now, go through all the files and remove ones we didn't see
+			foreach (var f in context.Songs.Where(s => s.SourceId == sourceId)) {
+				if (!seenFiles.Contains(f.Url)) {
+					context.Songs.Remove(f);
+					_logger?.LogDebug("Removed unseen file {url}", f.Url);
+				} else {
+					_logger?.LogDebug("Not removing seen file {url}", f.Url);
+				}
+			}
+
+			// save the delete changes
+			removed = await context.SaveChangesAsync();
+		}
+
+		_logger?.LogInformation("Scan complete for {path} ({processed} processed, {errors} errors, {removed} removed, {changes} changes saved)", sourceUri, seenFiles.Count, errors, removed, changes);
 
 		return (changes, errors);
 	}
 
-	private async Task<int> ProcessFile(Uri sourceUri, long sourceId, Uri fileUri, FileRecord fileInfo, HashSet<Uri> foundFiles)
+	private async Task<int> ProcessFile(Uri sourceUri, long sourceId, Uri fileUri, FileRecord fileInfo)
 	{
 		using var context = await _contextFactory.CreateDbContextAsync();
 
 		var relativePath = sourceUri.MakeRelativeUri(fileUri);
 		var song         = await context.Songs.FindAsync(sourceId, relativePath);
-
-		// add this file to the list of files we saw
-		foundFiles.Add(fileUri);
 
 		if (song != null && song.FileHash == fileInfo.Hash) {
 			// the song hasn't changed, we're done here
@@ -339,6 +337,4 @@ public class LibraryService(IDbContextFactory<LibraryContext> contextFactory, Fi
 
 		return list.Count == 0 ? null : list;
 	}
-
-	//private record FileRecord(long SourceId, string RelativePath, string Hash, TagLib.Tag Tag, TimeSpan Duration, DateTime LastWrite, long Length);
 }
