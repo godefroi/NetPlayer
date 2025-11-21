@@ -5,6 +5,7 @@
 
 # local files
 music_library.db*
+published/
 
 # dotenv files
 .env
