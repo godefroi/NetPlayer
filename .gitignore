@@ -7,6 +7,11 @@
 music_library.db*
 published/
 
+# ESP-IDF (src/NetPlayer)
+build/
+managed_components/
+sdkconfig.old
+
 # dotenv files
 .env
 
