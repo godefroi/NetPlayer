@@ -1,0 +1,105 @@
+DROP TABLE IF EXISTS radio;
+CREATE TABLE radio (
+	date            TEXT,   -- YYYY-MM-DD
+	title           TEXT,
+	artist          TEXT,
+	rank            INTEGER,
+	last_week       INTEGER,
+	peak_pos        INTEGER,
+	weeks_on_chart  INTEGER,
+	image_url       TEXT
+);
+
+DROP TABLE IF EXISTS hot_hundred;
+CREATE TABLE hot_hundred (
+	date            TEXT,   -- YYYY-MM-DD
+	title           TEXT,
+	artist          TEXT,
+	rank            INTEGER,
+	last_week       INTEGER,
+	peak_pos        INTEGER,
+	weeks_on_chart  INTEGER,
+	image_url       TEXT
+);
+
+DROP TABLE IF EXISTS streaming;
+CREATE TABLE streaming (
+	date            TEXT,   -- YYYY-MM-DD
+	title           TEXT,
+	artist          TEXT,
+	rank            INTEGER,
+	last_week       INTEGER,
+	peak_pos        INTEGER,
+	weeks_on_chart  INTEGER,
+	image_url       TEXT
+);
+
+DROP TABLE IF EXISTS digital;
+CREATE TABLE digital (
+	date            TEXT,   -- YYYY-MM-DD
+	title           TEXT,
+	artist          TEXT,
+	rank            INTEGER,
+	last_week       INTEGER,
+	peak_pos        INTEGER,
+	weeks_on_chart  INTEGER,
+	image_url       TEXT
+);
+
+
+.mode csv
+.import --skip 1 ..\archive\radio.csv radio
+.import --skip 1 ..\archive\hot100.csv hot_hundred
+.import --skip 1 ..\archive\streaming_songs.csv streaming
+.import --skip 1 ..\archive\digital_songs.csv digital
+
+CREATE INDEX IX_radio_title_artist on radio (title, artist);
+CREATE INDEX IX_hot_hundred_title_artist on hot_hundred (title, artist);
+CREATE INDEX IX_streaming_title_artist on streaming (title, artist);
+CREATE INDEX IX_digital_title_artist on digital (title, artist);
+
+update radio set weeks_on_chart = null where weeks_on_chart = '-';
+update hot_hundred set weeks_on_chart = null where weeks_on_chart = '-';
+update streaming set weeks_on_chart = null where weeks_on_chart = '-';
+update digital set weeks_on_chart = null where weeks_on_chart = '-';
+
+vacuum;
+
+CREATE TABLE IF NOT EXISTS files (
+	filename TEXT not null,
+	artist text not null,
+	album text not null,
+	title text not null,
+	track INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS playlist (
+	filename TEXT NOT NULL REFERENCES files(filename)
+);
+
+CREATE VIEW IF NOT EXISTS song_ranks AS
+SELECT 
+	artist,
+	title,
+	MIN(rank) as rank
+FROM (
+	SELECT artist, title, rank FROM radio
+	UNION ALL
+	SELECT artist, title, rank FROM hot_hundred
+)
+GROUP BY artist, title;
+
+CREATE VIEW IF NOT EXISTS ranked_files AS
+SELECT
+    f.filename,
+    f.artist,
+    f.album,
+    f.title,
+    f.track,
+    -- 1 = true, 0 = false
+    EXISTS (SELECT 1 FROM playlist p WHERE p.filename = f.filename) AS in_playlist,
+    sr.rank AS rank
+FROM files f
+LEFT JOIN song_ranks sr
+    ON sr.artist = f.artist
+    AND sr.title = f.title;

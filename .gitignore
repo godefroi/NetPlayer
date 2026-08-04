@@ -12,6 +12,10 @@ build/
 managed_components/
 sdkconfig.old
 
+# SongClassifier local data
+src/SongClassifier/*.db
+src/SongClassifier/appsettings.json
+
 # dotenv files
 .env
 
