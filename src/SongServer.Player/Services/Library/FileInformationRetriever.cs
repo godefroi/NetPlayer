@@ -87,9 +87,9 @@ public class FileInformationRetriever(SmbFileClient smbClient)
 
 	public Stream OpenFileStream(Uri fileUri)
 	{
-		if (fileUri.Scheme == _smbScheme && RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
-			return OpenFileStream(new UriBuilder(fileUri) { Scheme = Uri.UriSchemeFile }.Uri);
-		}
+		// if (fileUri.Scheme == _smbScheme && RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
+		// 	return OpenFileStream(new UriBuilder(fileUri) { Scheme = Uri.UriSchemeFile }.Uri);
+		// }
 
 		if (fileUri.Scheme == _smbScheme) {
 			var (server, share, path) = ParseUri(fileUri);

@@ -2,8 +2,7 @@ using SongServer.Services.Library;
 
 namespace SongServer.Services;
 
-internal abstract class AudioPlayer(ILogger logger, FileInformationRetriever fileInfoRetriever)
-{
+internal abstract class AudioPlayer(ILogger logger, FileInformationRetriever fileInfoRetriever) {
 	private readonly Lock _stateLock = new();
 	private readonly ILogger _logger = logger;
 	private readonly Queue<SongReference> _queue = [];
@@ -59,7 +58,12 @@ internal abstract class AudioPlayer(ILogger logger, FileInformationRetriever fil
 			// us with the current media's metadata; we're going to have to take care
 			// of that ourselves
 			// TODO: do that by loading the tag out of the file and verifying that we actually staretd playing
-			return await Play(_queue.Dequeue());
+			try {
+				return await Play(_queue.Dequeue());
+			} catch (Exception e) {
+				_logger.LogError(e, "Error while calling Play() on player.");
+				throw;
+			}
 		} else {
 			_logger.LogWarning("Cannot advance, nothing to play!");
 			return false;
@@ -69,7 +73,7 @@ internal abstract class AudioPlayer(ILogger logger, FileInformationRetriever fil
 	public void SetPlaylist(Playlist list)
 	{
 		lock (_stateLock) {
-			_list  = list;
+			_list = list;
 		}
 	}
 
@@ -129,9 +133,9 @@ internal abstract class AudioPlayer(ILogger logger, FileInformationRetriever fil
 		}
 
 		StateChanged?.Invoke(this, new StateChangedEventArgs() {
-			State    = state,
+			State = state,
 			Position = curPos,
-			Song     = song
+			Song = song
 		});
 	}
 

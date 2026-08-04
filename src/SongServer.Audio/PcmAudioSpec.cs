@@ -12,6 +12,8 @@ public enum SampleFormat
 	F32BE,
 	S16LE,
 	S16BE,
+	S32LE,
+	S32BE,
 }
 
 public static class SampleFormatExtensions
@@ -25,6 +27,10 @@ public static class SampleFormatExtensions
 		SampleFormat.S16LE when !BitConverter.IsLittleEndian => throw new InvalidOperationException("ffmpeg must always deal in native endianness."),
 		SampleFormat.S16BE when BitConverter.IsLittleEndian => throw new InvalidOperationException("ffmpeg must always deal in native endianness."),
 		SampleFormat.S16BE when !BitConverter.IsLittleEndian => AVSampleFormat.AV_SAMPLE_FMT_S16,
+		SampleFormat.S32LE when BitConverter.IsLittleEndian => AVSampleFormat.AV_SAMPLE_FMT_S32,
+		SampleFormat.S32LE when !BitConverter.IsLittleEndian => throw new InvalidOperationException("ffmpeg must always deal in native endianness."),
+		SampleFormat.S32BE when BitConverter.IsLittleEndian => throw new InvalidOperationException("ffmpeg must always deal in native endianness."),
+		SampleFormat.S32BE when !BitConverter.IsLittleEndian => AVSampleFormat.AV_SAMPLE_FMT_S32,
 		_ => throw new NotImplementedException($"The sample format {format} is not yet implemented for conversion to FFmpeg AVSampleFormat."),
 	};
 

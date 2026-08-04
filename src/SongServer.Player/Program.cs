@@ -23,8 +23,10 @@ internal class Program
 
 		builder.Services.AddSingleton<SmbFileClient>();
 		//builder.Services.AddSingleton<AudioPlayer, BassAudioPlayer>();
-		builder.Services.AddSingleton<AudioPlayer, FFmpegAudioPlayer>();
+		//builder.Services.AddSingleton<AudioPlayer, FFmpegAudioPlayer>();
+		builder.Services.AddSingleton<AudioPlayer, NetPlayerAudioPlayer>();
 		builder.Services.AddSingleton<LibraryService>();
+		builder.Services.AddSingleton<AudioConverterFactory>();
 		builder.Services.AddSingleton(sp => {
 			using var context = sp.GetRequiredService<IDbContextFactory<LibraryContext>>().CreateDbContext();
 			var playlistSongs = context.Playlist

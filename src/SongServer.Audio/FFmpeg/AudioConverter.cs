@@ -242,15 +242,14 @@ public unsafe class AudioConverter : IDisposable
 			var readCnt = _inputStream.Read(buffer);
 
 			return readCnt;
-		} catch (Exception ex) {
-			Console.WriteLine($"Error reading from stream: {ex.Message}");
+		} catch (Exception e) {
+			_logger.LogError(e, "Error reading from stream");
 			return ffmpeg.AVERROR_UNKNOWN;
 		}
 	}
 
 	private long SeekInStream(void* opaque, long offset, int whence)
 	{
-		//Console.WriteLine($"SEEK -> offset {offset}, whence {whence}");
 		if (!_inputStream.CanSeek) {
 			return ffmpeg.AVERROR_UNKNOWN;
 		}
@@ -268,7 +267,7 @@ public unsafe class AudioConverter : IDisposable
 				_ => ffmpeg.AVERROR_BUG,
 			};
 		} catch (Exception e) {
-			Console.WriteLine($"Exception during seek (offset {offset} whence {whence}): {e.Message}");
+			_logger.LogError(e, "Exception during seek (offset {offset} whence {whence})", offset, whence);
 			return ffmpeg.AVERROR_UNKNOWN;
 		}
 	}
