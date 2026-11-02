@@ -85,7 +85,7 @@ public class Playlist
 		return new Playlist(entries, Convert.ToHexStringLower(hasher.GetCurrentHash()));
 	}
 
-	public static async Task<Playlist> Load(IEnumerable<Uri> entries)
+	public static Playlist Load(IEnumerable<Uri> entries)
 	{
 		using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 

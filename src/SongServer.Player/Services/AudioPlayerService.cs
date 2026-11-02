@@ -26,7 +26,7 @@ internal class AudioPlayerService(AudioPlayer player, IDbContextFactory<LibraryC
 
 		using var context = await _contextFactory.CreateDbContextAsync();
 
-		var playlist = await Playlist.Load(context.Playlist.Where(s => s.Song != null).Select(s => s.Song!.Url));
+		var playlist = Playlist.Load(context.Playlist.Where(s => s.Song != null).Select(s => s.Song!.Url));
 		var state    = new AudioPlayer.PlaylistState() {
 			Path = "nowhere_in_particular",
 			Hash = playlist.Hash,

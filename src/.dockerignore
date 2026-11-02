@@ -1,0 +1,26 @@
+*.db
+*.csv
+
+# Build artifacts
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+
+# IDE files
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln.iml
+.idea/
+
+# NuGet
+.nuget/
+*.nupkg
+*.snupkg
+
+# Local testing files
+*.log
+.DS_Store
